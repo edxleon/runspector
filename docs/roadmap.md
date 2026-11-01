@@ -17,7 +17,7 @@ a release note that cites one still points at the right section. The order is th
 | # | Gap | For the runner | Effort |
 |---|---|---|---|
 | 15 | The light rests a day on one weak signal, and holds days easy for too little load | high (every morning) | small in code, medium in evals |
-| 22 | What each run did against what it was meant to be - easy kept easy, hard made hard - and how that changes over the months - *the count by zones done for v0.8; the session's intent and the fading run open* | high (every run, the most common mistake) | medium to high |
+| 22 | What each run did against what it was meant to be - easy kept easy, hard made hard - and how that changes over the months - *the count by zones shipped in v0.8; the session's intent and the fading run open* | high (every run, the most common mistake) | medium to high |
 | 6 | The proposed session matched against the run that followed, and the same reps compared across weeks | high | medium |
 | 16 | A week planned and put on the watch without Claude | high (anyone without Claude Code) | small to medium |
 | 5 | A session with your own structure, in your own words | high | medium |
@@ -60,7 +60,7 @@ preparation (14) stays last for the reasons in its section.
 | 9 | `runspector today` for the morning; a sync when the page comes back into focus | v0.6 |
 | 11 | Garmin's own readiness beside the app's | v0.6 |
 | 12 | Body weight in the sync | v0.6 |
-| 10 | Where each statement on a card comes from, and a record of what the AI read for it | v0.8 (on `main`, not yet released) |
+| 10 | Where each statement on a card comes from, and a record of what the AI read for it | v0.8 |
 
 Each from 2 on keeps its section below, with what it does and what it left open, because the reasoning behind
 the order is the point of this file. The order they had, and why: progression without a plan (1)
@@ -204,7 +204,7 @@ page left open overnight shows yesterday until someone clicks.
 
 ## 10. Where each statement on a card comes from
 
-*Done for v0.8 (on `main`, not yet released), wider than planned:* every point on a card carries
+*Shipped in v0.8, wider than planned:* every point on a card carries
 where it comes from - *your data* (with the tool it names), *you said*, *coach's reading* - and the
 app keeps a record of everything the coach read for the card (`evidence.py`): the card run's whole
 session (`--output-format stream-json`), each tool with what came back, and what the run was given.
@@ -380,7 +380,7 @@ and notarising for two systems would be a second product to keep alive.
 
 ## 22. What each run did, against what it was meant to be
 
-*Done for v0.8 (on `main`, not yet released):* zones and laps for every run of the 26 weeks
+*Shipped in v0.8:* zones and laps for every run of the 26 weeks
 (`sync.DETAIL_PER_SYNC` a sync, recent ones first, older runs drawn at random so a run Garmin keeps
 answering empty for never holds the others' places - nothing is ever written off; runs without a heart
 rate are not asked for, and a 404 on the weather or the chart no longer costs a run its zones); each

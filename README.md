@@ -126,7 +126,7 @@ uv tool upgrade runspector     # the newest release; your data and Garmin sessio
 uv tool uninstall runspector   # removes the program only - delete ~/.runspector yourself if you want the data gone
 ```
 
-`uv tool install runspector` takes the latest release from PyPI (`runspector==0.7.0` pins one; `pipx install runspector`
+`uv tool install runspector` takes the latest release from PyPI (`runspector==0.8.0` pins one; `pipx install runspector`
 and `pipx upgrade runspector` do the same without uv);
 `uv tool install git+https://github.com/edxleon/runspector` takes whatever is on `main`.
 
@@ -524,8 +524,9 @@ without Claude, and sessions with your own structure. After them: session sizes 
 per weekday, how a run felt, the week's load before you say yes, the kind of a strength day, moving
 a session, a fitness trend beside VO2max, deeper history, a one-file install for Claude Desktop, and
 race preparation towards a goal race. v0.3 made the planner read the history for what comes next,
-v0.6 brought every small item, v0.7 the athlete's own check-in, and the next release where each
-point on a card comes from, with a record of what the AI read; the reasoning and the order are there.
+v0.6 brought every small item, v0.7 the athlete's own check-in, and v0.8 where each point on a card
+comes from, with a record of what the AI read, and how each run was run - easy, in the middle or
+hard - by its own zones; the reasoning and the order are there.
 
 ## License
 
