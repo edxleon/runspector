@@ -5,9 +5,11 @@
 //   · For your coach - the athlete's own note, read by the coach (never by a
 //     rule) before every answer.
 //   · What the coach has learned - the other facts (`facts.py`), read-only.
+//   · What the AI reads, and what is kept - in plain words, with the latest
+//     steps of chats in Claude (`evidence.py`, the state's `ai_record`).
 // Pure: state in, HTML out, so web-tests render it without a page. The draft
 // of an edit lives in app.js, because the page re-renders on every poll.
-import { esc } from "./ui.js";
+import { esc, fmtAgo } from "./ui.js";
 
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const SHORT = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
@@ -290,8 +292,47 @@ function learnedCard(facts) {
     <div class="facts">${tiles}</div></div>`;
 }
 
+/** One step of a chat, as a sentence: "Read today's readiness", or what it
+ *  did ("A session put on your watch"). */
+export function chatStep(r) {
+  const label = String(r?.label || r?.tool || "a step");
+  return r?.changed ? label.charAt(0).toUpperCase() + label.slice(1) : `Read ${label}`;
+}
+
+/** What the AI reads, what the app keeps of it, where, and for how long -
+ *  then the latest steps of chats in Claude. `rec` is the state's `ai_record`. */
+export function recordCard(rec) {
+  if (!rec) return "";
+  const rows = (rec.chats || []).map(r => `<li class="rec-row${r.ok ? "" : " rec-failed"}">
+      <span class="rec-when">${esc(fmtAgo(r.ts))}</span>
+      <span class="rec-what">${esc(chatStep(r))}${r.detail ? ` <span class="note">(${esc(r.detail)})</span>` : ""}${
+        r.ok ? "" : ` <span class="note">- failed</span>`}</span></li>`).join("");
+  return `<div class="card you-record">
+    <div class="subhead">What the AI reads - and what is kept</div>
+    <div class="note">The coach reads your data through this app's own tools. What it reads goes to
+      Claude for that one answer. The app keeps a record of each of those steps here, on this
+      computer, so you can check what an answer was based on.</div>
+    <ul class="rec-kept">
+      <li><b>Coach cards</b> - these can use nothing but the app's tools: no web, no files. Open
+        "How this card was made" under a card: everything the coach looked at, what came back, and
+        a check of every number on the card against it. Kept as long as the card${
+          rec.cards_kept ? ` (the app keeps the newest ${esc(rec.cards_kept)}, and the newest of each kind)` : ""}.</li>
+      <li><b>Chats in Claude Code or Claude Desktop</b> - every step a chat took through the app's
+        tools, listed below, kept ${esc(rec.chat_days || 14)} days. Claude Code can also read files
+        on this computer with its own tools; those steps are not in this record.</li>
+      <li><b>Where</b> - <span class="mono">${esc(rec.where || "")}</span>. Delete that folder to
+        clear the record; nothing else depends on it.</li>
+    </ul>
+    <div class="subhead rec-sub">Recently in chats</div>
+    ${rows ? `<ul class="rec-list">${rows}</ul>`
+      : `<div class="empty-note">No chat has used your data yet. Ask Claude about your training
+          and each step shows up here.</div>`}
+  </div>`;
+}
+
 /** The whole tab. `week` is the server's week settings (`facts.week_settings`),
- *  `ui` the editor's state from app.js: `{draft, error, saving, note, noteError}`. */
-export function youHtml(facts, week = null, ui = {}) {
-  return weekCard(week, facts, ui) + noteCard(week, ui) + learnedCard(facts);
+ *  `ui` the editor's state from app.js: `{draft, error, saving, note, noteError}`,
+ *  `record` the state's `ai_record`. */
+export function youHtml(facts, week = null, ui = {}, record = null) {
+  return weekCard(week, facts, ui) + noteCard(week, ui) + learnedCard(facts) + recordCard(record);
 }

@@ -1594,6 +1594,7 @@ _CLIENT_CALL = {
     "/api/check-in": "POST",           # the athlete's own word: ill, pain, sore, stressed
     "/api/garmin/login": "POST",       # the sign-in dialog; only the token is kept
     "/api/cards/<id>/delete": "POST",
+    "/api/cards/<id>/evidence": "GET",  # what the coach looked at for a card
     "/api/plan/apply": "POST",          # the one write to Garmin, behind a click
 }
 

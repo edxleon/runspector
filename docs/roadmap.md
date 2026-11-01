@@ -23,7 +23,6 @@ a release note that cites one still points at the right section. The order is th
 | 7 | Session sizes from the athlete's own time per weekday and usual run lengths - *short days shipped in v0.6* | medium to high (every planned week) | small |
 | 2 | How a run felt - *the rest of the item is in v0.7* | medium | small |
 | 17 | The planned week's load shown before the yes | medium (trust, and a check on the planner) | small |
-| 10 | Where each statement on a card comes from: measured, said by you, or derived | medium (trust) | medium |
 | 18 | What kind of strength day it was: legs, upper body, whole body | medium (runners who lift) | small |
 | 19 | A planned session moved to another day | medium | medium |
 | 20 | A fitness trend beside VO2max: aerobic decoupling on steady runs | medium | medium |
@@ -40,8 +39,7 @@ none for a runner without Claude Code and changes nothing for one with it, so it
 items every runner gets and comes before your own structure (5), which helps those who want what
 the menu does not hold. Session sizes from the athlete's own time (7) shape every planned week. How
 a run felt (2) is cheap now that the watch's own answer is in the data. The week's projected load
-(17) is small and guards the yes. Of the trust items, where a statement comes from (10) touches
-every card. Strength days (18), moving a session (19) and a second fitness trend (20) help part of
+(17) is small and guards the yes. Strength days (18), moving a session (19) and a second fitness trend (20) help part of
 the runners; deeper history (13) and the one-file install (21) help on install day only; race
 preparation (14) stays last for the reasons in its section.
 
@@ -58,6 +56,7 @@ preparation (14) stays last for the reasons in its section.
 | 9 | `runspector today` for the morning; a sync when the page comes back into focus | v0.6 |
 | 11 | Garmin's own readiness beside the app's | v0.6 |
 | 12 | Body weight in the sync | v0.6 |
+| 10 | Where each statement on a card comes from, and a record of what the AI read for it | v0.8 (on `main`, not yet released) |
 
 Each from 2 on keeps its section below, with what it does and what it left open, because the reasoning behind
 the order is the point of this file. The order they had, and why: progression without a plan (1)
@@ -200,6 +199,19 @@ cron plus any notifier would do the rest), and the web app syncs only at start a
 page left open overnight shows yesterday until someone clicks.
 
 ## 10. Where each statement on a card comes from
+
+*Done for v0.8 (on `main`, not yet released), wider than planned:* every point on a card carries
+where it comes from - *your data* (with the tool it names), *you said*, *coach's reading* - and the
+app keeps a record of everything the coach read for the card (`evidence.py`): the card run's whole
+session (`--output-format stream-json`), each tool with what came back, and what the run was given.
+*How this card was made* under the card shows it, and a check in code looks for every number on the
+card in what the coach read; a point marked as your data that names a tool it never called, or holds
+no number from the data, says so under it. The check reports and never rejects a card: it is
+literal, so a number found was in front of the coach - not proof it was read rightly - and a
+number not found may be the coach's own arithmetic. Chats in Claude Code or Claude Desktop are
+recorded by the MCP server, one line per tool call, and the You tab lists them. Still open: chat
+answers carry no marks (the record shows what they read, not which sentence came from where), and
+the evals do not cover the card frame at all, so a change to it is checked by a real card run.
 
 A card says "your HRV has been low for four days", "you said Tuesdays are short", "your long run
 is too fast". The first is measured, the second is the athlete's own word, the third is the

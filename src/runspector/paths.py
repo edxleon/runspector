@@ -183,6 +183,14 @@ def jobs_dir() -> Path:
     return d
 
 
+def evidence_dir() -> Path:
+    """What the AI read: one file per coach card, and `chats/` for the tool
+    calls of chats in Claude Code or Claude Desktop (`evidence.py`)."""
+    d = home() / "evidence"
+    d.mkdir(exist_ok=True)
+    return d
+
+
 def proposals_dir() -> Path:
     """Sessions proposed and not yet (or already) written to Garmin (`plan.py`)."""
     d = home() / "proposals"

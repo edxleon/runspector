@@ -15,7 +15,9 @@ answer text; this process — not the agent — validates and writes it.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -29,11 +31,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .. import paths, plan, tools
+from .. import __version__, evidence, paths, plan, tools
 from .. import profile as profile_mod
 from ..onboarding import child_env, strips_billing  # noqa: F401 — strips_billing: doctor and tests read it here
 from . import jobs
 
+log = logging.getLogger(__name__)
 PKG = Path(__file__).resolve().parent.parent
 SKILLS = (PKG / "skills" / "coach.md", PKG / "skills" / "zones.md")
 PROMPT_CAP = 8000
@@ -67,6 +70,12 @@ sync_garmin). Rules:
   repetition between headline/verdict/bullets, no methodology, no hedging
   boilerplate, no reference knowledge that decides nothing today. Decidability
   beats completeness.
+  Start every bullet with where it comes from, in square brackets - the page
+  shows it to the athlete and checks it against what the tools returned:
+  [measured: <tool name>] a value a tool returned in this run (name that tool);
+  [you] what the athlete said (their note, the You tab, a check-in);
+  [derived] a rule's result or your own reading of the numbers.
+  A number in a [measured] bullet appears in that tool's result as you got it.
 
 TASK:
 """
@@ -198,6 +207,12 @@ WRITE_TOOL = WRITE_TOOLS[0]
 DENIED_TOOLS = tuple(f"mcp__runspector__{n}" for n in tools.UNATTENDED_DENIED)
 
 
+#: Whether the CLI takes `--no-session-persistence`. An older Claude Code
+#: refuses an option it does not know; the first refusal turns the flag off
+#: for this process (`run`), so a card is never lost to it.
+_SESSION_FLAG = [True]
+
+
 def command(workdir: Path, db: str | None) -> list[str]:
     cfg = workdir / "mcp.json"
     cfg.write_text(json.dumps(mcp_config(db, demo=bool(db and Path(db).name == "demo.db"))),
@@ -208,7 +223,15 @@ def command(workdir: Path, db: str | None) -> list[str]:
     # model without tools happily invents the data (measured: one turn, fabricated
     # HRV and sleep values). `run()` additionally rejects any answer that was
     # produced without a single tool round trip.
-    cmd = [*base, "--print", "--output-format", "json",
+    # `stream-json` (it needs `--verbose`): the whole session, every tool call
+    # with what it returned, ends up in the job log - and the card keeps it as
+    # its evidence (`evidence.py`). The final event is the same envelope
+    # `--output-format json` prints alone.
+    # `--no-session-persistence`: Claude Code would otherwise keep the whole
+    # session, every tool result, in its own folder - outside the card's
+    # record, untouched when the card or the record is deleted.
+    cmd = [*base, "--print", "--output-format", "stream-json", "--verbose",
+           *(["--no-session-persistence"] if _SESSION_FLAG[0] else []),
            "--strict-mcp-config", "--mcp-config", str(cfg),
            "--tools", "", "--allowedTools", "mcp__runspector",
            # The tools that write to Garmin stay out of reach of an
@@ -384,14 +407,35 @@ def run(job: dict, *, db: str | None = None, snapshot_meta: dict | None = None,
     waited = 0
     while True:
         rc, out, err = _run_once(job, db, athlete, note)
-        jobs.log_path(job["id"]).write_text(f"exit={rc}\n--- stdout ---\n{out}\n--- stderr ---\n{err}\n",
+        stream = evidence.parse_stream(out)
+        envelope = stream["envelope"]
+        # The job log keeps the run's ANSWER, as it did before the session was
+        # streamed: the tool results belong to the card's record, which goes
+        # with the card. A log of the whole session outlived a deleted card by
+        # up to 14 days. Without a final event the raw output is all there is.
+        logged = (json.dumps(envelope) if stream["stream"] and envelope is not None
+                  else evidence.own_words(out))
+        jobs.log_path(job["id"]).write_text(f"exit={rc}\n--- stdout ---\n{logged}\n--- stderr ---\n{err}\n",
                                             encoding="utf-8")
         if rc == CANCELLED:
             jobs.clear_cancel(job["id"])
             return _finish(job, "cancelled", rc, "cancelled")
         if rc == TIMED_OUT:
             return _finish(job, "timeout", rc, f"no answer within {TIMEOUT_S}s")
-        if rc != 0 and _QUOTA_RE.search(out + err) and waited < QUOTA_WAIT_S:
+        refused = "--no-session-persistence" in err and "unknown option" in err.lower()
+        if rc != 0 and _SESSION_FLAG[0] and refused:
+            _SESSION_FLAG[0] = False
+            log.warning("this Claude Code does not know --no-session-persistence; running without it")
+            continue
+        # Only the run's own words - its final event whole, as before the session
+        # was streamed (an error event says it in `errors`) - never the tools',
+        # nor the init event's list of the user's skills and servers: a Garmin
+        # "rate limit?" or a skill named "usage-quota" is not Claude's quota.
+        # Without a final event that leaves the plain lines.
+        plain = "\n".join(line for line in evidence.own_words(out).splitlines()
+                          if not line.lstrip().startswith("{"))
+        said = (json.dumps(envelope) if envelope is not None else plain) + err
+        if rc != 0 and _QUOTA_RE.search(said) and waited < QUOTA_WAIT_S:
             job["note"] = "waiting for quota"
             jobs.write_job(job)
             # Sleep in slices so a cancel does not have to wait out the full
@@ -406,37 +450,37 @@ def run(job: dict, *, db: str | None = None, snapshot_meta: dict | None = None,
         break
     job["note"] = None
 
-    result, cost, model = "", None, ""
-    try:
-        envelope = json.loads(out)
-        result = str(envelope.get("result") or "")
-        cost = envelope.get("total_cost_usd")
-        # The CLI also lists its small helper model; the card was written by the
-        # one that did the work, i.e. the one with the highest cost.
-        usage = envelope.get("modelUsage") or {}
-        model = max(usage, key=lambda m: (usage[m] or {}).get("costUSD") or 0, default="")
-        if envelope.get("is_error"):
-            return _finish(job, "failed", rc, result[:300] or "claude reported an error", cost)
-        if isinstance(envelope.get("num_turns"), int) and envelope["num_turns"] < 2:
-            # One turn = no tool call = the numbers cannot come from the data.
-            return _finish(job, "failed", rc, "the agent answered without reading any data "
-                                              "(MCP server not connected?) - card discarded", cost)
-    except ValueError:
-        # We asked for --output-format json, so unparsable stdout means the CLI
-        # itself misbehaved. Falling back to raw stdout used to look forgiving but
-        # silently skipped the is_error and num_turns guards above — fail-open on
-        # exactly the check that proves a card was backed by real data. If the
+    if envelope is None:
+        # We asked for JSON, so stdout without the final result event means the
+        # CLI itself misbehaved. Falling back to raw stdout used to look forgiving
+        # but silently skipped the is_error and num_turns guards below — fail-open
+        # on exactly the check that proves a card was backed by real data. If the
         # process also failed, its own error is the more useful summary.
         return _finish(job, "failed", rc,
-                       (err or out).strip()[-300:]
+                       (err or plain).strip()[-300:]
                        or "claude did not return a JSON envelope - see the job log", None)
+    result = str(envelope.get("result") or "")
+    cost = envelope.get("total_cost_usd")
+    # The CLI also lists its small helper model; the card was written by the
+    # one that did the work, i.e. the one with the highest cost.
+    usage = envelope.get("modelUsage") or {}
+    model = max(usage, key=lambda m: (usage[m] or {}).get("costUSD") or 0, default="")
+    if envelope.get("is_error"):
+        return _finish(job, "failed", rc, result[:300] or "claude reported an error", cost)
+    if isinstance(envelope.get("num_turns"), int) and envelope["num_turns"] < 2:
+        # One turn = no tool call = the numbers cannot come from the data.
+        return _finish(job, "failed", rc, "the agent answered without reading any data "
+                                          "(MCP server not connected?) - card discarded", cost)
     if rc != 0:
         return _finish(job, "failed", rc, (err or out).strip()[-300:] or f"exit {rc}", cost)
 
     card, problem = parse_card(result)
     if card is None:
         return _finish(job, "failed", rc, problem, cost)
-    card.pop("feedback", None)   # never accept self-written feedback
+    # Never accept self-written feedback - nor a record of its own: `sources`
+    # and `evidence` are what the app checked, set below or not at all.
+    for key in ("feedback", "sources", "evidence"):
+        card.pop(key, None)
     # A proposal reference is kept only if it has the shape of one the app
     # files: the model may not invent an id, and the page resolves it - an
     # unknown id becomes "no proposal", never a button.
@@ -449,8 +493,47 @@ def run(job: dict, *, db: str | None = None, snapshot_meta: dict | None = None,
         generated_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         ctx=job.get("ctx"), parent=job.get("parent"), **(snapshot_meta or {}))
     card.setdefault("day", paths.today().isoformat())
+    _attach_evidence(job, card, stream, model, athlete, note)
     jobs.write_card(job["id"], card)
     return _finish(job, "done", rc, str(card.get("headline"))[:300], cost)
+
+
+def _attach_evidence(job: dict, card: dict, stream: dict, model: str,
+                     athlete: str, note: str) -> None:
+    """Where each point comes from, and what the coach read for the card
+    (`evidence.py`). The evidence file is written BEFORE the card, so a card
+    never points at a record that is not there. It is extra: any failure
+    leaves the card as it was, never costs it."""
+    try:
+        card["bullets"], card["sources"] = evidence.split_marks(card["bullets"])
+    except Exception:  # the record is extra - see above
+        log.warning("could not read the source marks of card %s", job["id"], exc_info=True)
+        return
+    try:
+        rules = coaching_reference() + FRAME
+        prev = (None if job.get("template_id") == "ask" else
+                jobs.latest_card(str(job.get("template_id") or ""), job.get("ctx"), exclude=job["id"]))
+        context = athlete_block(athlete, note) + str(job.get("prompt") or "") + previous_card_block(job)
+        inputs = {"app_version": __version__,
+                  "rules_sha256": hashlib.sha256(rules.encode("utf-8")).hexdigest()[:16],
+                  "task": str(job.get("prompt") or "")[:PROMPT_CAP],
+                  "about_you": (athlete or "").strip()[:ATHLETE_CAP],
+                  "your_note": (note or "").strip()[:profile_mod.NOTE_MAX],
+                  "previous_card": prev["id"] if prev else None}
+        # The ABOUT THE ATHLETE block is what `get_athlete_profile` returns,
+        # and every run has it in its prompt (coach.md says so): a point that
+        # names that tool was looked at. The rules are the coaching reference.
+        doc, summary, checked = evidence.card_record(
+            job_id=job["id"], model=model, stream=stream, card=card, sources=card["sources"],
+            inputs=inputs, data_rules=rules, data_context=context,
+            given={"get_athlete_profile": (athlete or "").strip()[:ATHLETE_CAP]},
+            given_rules=("get_coaching_reference",))
+        jobs.write_evidence(job["id"], doc)
+        card["sources"], card["evidence"] = checked, summary
+    except Exception:  # the record is extra - see above
+        # Marks nobody checked would read as checked: the card goes without.
+        card.pop("sources", None)
+        log.warning("could not record the evidence of card %s", job["id"], exc_info=True)
 
 
 def _finish(job: dict, status: str, rc: int, summary: str, cost=None) -> dict:

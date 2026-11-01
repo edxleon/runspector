@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1151 tests, 91 frontend tests and that gate on three operating systems and two Python versions, with every
+1245 tests, 101 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -259,6 +259,8 @@ cards still works.
 The numbers this app shows (readiness, recent runs, zones, weekly load),
 and only when you start a card or ask in Claude Code. It never sees your Garmin password, the
 session token or any raw file. It reaches Claude through your own account, under your plan's terms.
+And you can see it too: under every card, *How this card was made* lists everything the coach looked
+at and checks each number on the card against it; the You tab lists what chats in Claude read.
 
 ### Can it mess up my watch or my calendar?
 
@@ -424,7 +426,7 @@ More detail: [docs/architecture.md](docs/architecture.md).
 ## Privacy
 
 Everything stays in `~/.runspector/` (override with `RUNSPECTOR_HOME`): the SQLite database, Garmin session
-tokens, coach cards. Your password is never stored. On Linux and macOS the directory is created `0700`,
+tokens, coach cards, and the record of what the AI read (below). Your password is never stored. On Linux and macOS the directory is created `0700`,
 so on a shared machine other local accounts cannot read those files; Windows inherits the user profile's
 ACL instead. **While `runspector serve` runs, that no longer covers them:** without a token any local account
 or process can ask `127.0.0.1:8765` for your data, and since v0.2 apply or undo a proposal with your
@@ -436,6 +438,22 @@ aggregated training data. The server binds to `127.0.0.1`; listening on the netw
 HTTP with no TLS, so on that network the token and everything the app returns travel unencrypted and
 readable by anyone who can see the traffic — it is meant for your own phone on your own LAN, not for a
 network you do not control.
+
+**What the AI read is kept, so you can check what it says.** The coach reaches your data only through the
+app's own tools. For every coach card the app keeps everything the coach looked at - each tool, its
+arguments, what came back - and what it was given (what the app knows about you, your note, the task);
+*How this card was made* under the card shows it, and checks every number on the card against it. The
+check is literal: a number found was in front of the coach, which is not proof it was read rightly; a
+number not found was worked out by the coach or is not backed by your data, and the card says which
+numbers those are. Each point also says where it comes from - *your data*, *you said* or *coach's
+reading* - and a point marked as your data that the record does not back says so under it. Chats in
+Claude Code or Claude Desktop are recorded too: one line per tool call, with what it returned. The You tab
+lists the latest. Where it lives: `~/.runspector/evidence/` - a card's record as long as the card (the
+newest 60, and the newest of each kind), the chat record for 14 days. None of it leaves the machine;
+delete the folder to clear it, nothing else depends on it. Card runs are started so that Claude Code
+keeps no session of its own for them; a chat you have with Claude yourself stays in Claude's own
+history, as any chat does, and what Claude Code does there with its other tools (reading a file, say)
+is not in this record.
 
 ## Configuration
 
@@ -502,11 +520,11 @@ calendar entry. One athlete, one account, one watch.
 on it: a readiness light that does not rest a day on one weak signal, the proposed session matched
 against the run that followed - with the same reps compared across weeks -, a week on the watch
 without Claude, and sessions with your own structure. After them: session sizes from your own time
-per weekday, how a run felt, the week's load before you say yes, where each statement on a card
-comes from, the kind of a strength day, moving a session, a fitness trend beside VO2max, deeper
-history, a one-file install for Claude Desktop, and race preparation towards a goal race. v0.3 made
-the planner read the history for what comes next, v0.6 brought every small item and v0.7 the
-athlete's own check-in; the reasoning and the order are there.
+per weekday, how a run felt, the week's load before you say yes, the kind of a strength day, moving
+a session, a fitness trend beside VO2max, deeper history, a one-file install for Claude Desktop, and
+race preparation towards a goal race. v0.3 made the planner read the history for what comes next,
+v0.6 brought every small item, v0.7 the athlete's own check-in, and the next release where each
+point on a card comes from, with a record of what the AI read; the reasoning and the order are there.
 
 ## License
 

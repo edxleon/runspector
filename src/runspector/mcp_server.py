@@ -10,12 +10,13 @@ description is the only thing the model sees when choosing.
 from __future__ import annotations
 
 import os
-from typing import Annotated, Literal
+import time
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from . import __version__, plan, tools
+from . import __version__, evidence, plan, tools
 from .store import TREND_METRICS, Store
 from .web.agent import SKILLS
 
@@ -79,7 +80,31 @@ def coaching_instructions() -> str | None:
     return CHAT_INSTRUCTIONS
 
 
-mcp = FastMCP("runspector", instructions=coaching_instructions())
+class _RecordedMCP(FastMCP):
+    """FastMCP that writes every tool call of a chat to the chat record
+    (`evidence.record_chat_call`): which tool, with what, what came back. The
+    You tab lists them, so the athlete can see what Claude read and did. A card
+    run is not recorded here - its card keeps its own, fuller record. One
+    override, at the one door every call passes; the tools and their schemas
+    are untouched."""
+
+    async def call_tool(self, name: str, arguments: dict[str, Any], *args, **kwargs):
+        if os.environ.get("RUNSPECTOR_UNATTENDED"):
+            return await super().call_tool(name, arguments, *args, **kwargs)
+        started = time.monotonic()
+        try:
+            result = await super().call_tool(name, arguments, *args, **kwargs)
+        except Exception as exc:
+            evidence.record_chat_call(name, arguments, ok=False,
+                                      ms=round((time.monotonic() - started) * 1000),
+                                      result=f"{type(exc).__name__}: {exc}")
+            raise
+        evidence.record_chat_call(name, arguments, ok=True,
+                                  ms=round((time.monotonic() - started) * 1000), result=result)
+        return result
+
+
+mcp = _RecordedMCP("runspector", instructions=coaching_instructions())
 # FastMCP takes no version and reported the `mcp` package's own (1.30.0) as
 # the server's; a client showing "runspector 1.30.0" names a release that never was.
 mcp._mcp_server.version = __version__
@@ -382,4 +407,6 @@ def check_in(
 
 
 def main() -> None:
+    if not os.environ.get("RUNSPECTOR_UNATTENDED"):
+        evidence.prune_chats()
     mcp.run()

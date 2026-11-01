@@ -244,3 +244,120 @@ test("todayCard: a card made before the athlete checked in is out of date", () =
   assert.equal(todayCard([card], "2026-06-10", "train-today", "2026-06-10T04:00:00+00:00").outdated, false);
   assert.equal(todayCard([card], "2026-06-11", "train-today", "2026-06-10T06:00:00+00:00").outdated, false);
 });
+
+/* ── where a point comes from, and how a card was made ───────────────────── */
+
+test("bulletItems: each point keeps its own source, also past an empty one", async () => {
+  const { bulletItems } = await import("../src/runspector/web/static/cards.js");
+  const items = bulletItems({ bullets: ["a", "", "c"],
+                              sources: [{ kind: "measured" }, { kind: "you" }, { kind: "derived" }] });
+  assert.deepEqual(items.map(x => [x.text, x.src?.kind]), [["a", "measured"], ["c", "derived"]]);
+  assert.deepEqual(bulletItems({ bullets: ["old card"] }), [{ text: "old card", src: null }]);
+});
+
+test("sourceBadge: plain words, and the reason when 'your data' is not backed", async () => {
+  const { sourceBadge } = await import("../src/runspector/web/static/cards.js");
+  assert.equal(sourceBadge(null), null);
+  assert.equal(sourceBadge({ kind: "opinion" }), null);
+  const ok = sourceBadge({ kind: "measured", from: "today's readiness", called: true, unmatched: [] });
+  assert.equal(ok.label, "your data");
+  assert.equal(ok.warn, false);
+  assert.match(ok.tip, /today's readiness/);
+  assert.equal(sourceBadge({ kind: "you" }).label, "you said");
+  assert.equal(sourceBadge({ kind: "derived" }).label, "coach's reading");
+  const bad = sourceBadge({ kind: "measured", ref: "get_trend", called: false, unmatched: ["93.4"] });
+  assert.equal(bad.warn, true);
+  assert.match(bad.why, /get_trend, which the coach did not look at/);
+  assert.match(bad.why, /93\.4 is not in what the coach looked at - it may be the coach's own arithmetic/);
+  // a derived point may hold a number of its own making - no warning
+  assert.equal(sourceBadge({ kind: "derived", unmatched: ["13.7"] }).warn, false);
+});
+
+test("evidenceSummary: what the coach looked at, and how many numbers it backs", async () => {
+  const { evidenceSummary } = await import("../src/runspector/web/static/cards.js");
+  assert.equal(evidenceSummary(null), "");
+  assert.equal(evidenceSummary({ recorded: false }), "not recorded for this card");
+  assert.equal(evidenceSummary({ recorded: true, reads: 1, numbers: 0, unmatched: [] }), "looked at 1 thing");
+  assert.equal(evidenceSummary({ recorded: true, reads: 6, numbers: 16, unmatched: [{}, {}] }),
+               "looked at 6 things · 14 of 16 numbers found there");
+  assert.equal(evidenceSummary({ recorded: true, reads: 6, numbers: 9, unmatched: [] }),
+               "looked at 6 things · all 9 numbers found there");
+});
+
+test("renderEvidence: every value from the record is escaped, and it says what it is", async () => {
+  const { renderEvidence } = await import("../src/runspector/web/static/cards.js");
+  const evil = "<img src=x onerror=alert(1)>";
+  const html = renderEvidence({
+    recorded: true, complete: true, model: "claude-opus-5",
+    calls: [{ tool: evil, label: evil, args: evil, result: evil, changed: false, error: false },
+            { tool: "apply_workout", label: "a session put on your watch", changed: true, result: "" }],
+    inputs: { about_you: evil, task: evil, rules_sha256: "abcdef01feedbeef", app_version: "0.8.0" },
+    check: { numbers: 3, in_data: 2, unmatched: [{ where: "headline", value: evil }] },
+  });
+  assert.doesNotMatch(html, /<img/, "no tag from the record reaches the page");
+  assert.match(html, /&lt;img/);
+  assert.match(html, /only through this app's own tools/);
+  assert.match(html, /2 of 3 numbers on this card/);
+  assert.match(html, /\(the headline\)/);
+  assert.match(html, /A session put on your watch|a session put on your watch/);
+  assert.match(html, /opus-5 · rules abcdef01 · app 0\.8\.0/);
+  assert.match(renderEvidence({ recorded: false, old: true }), /before the app kept a record/);
+  assert.match(renderEvidence("loading"), /Loading/);
+  assert.match(renderEvidence({ error: "<b>x</b>" }), /&lt;b&gt;/);
+  assert.match(renderEvidence({ recorded: true, calls: [], check: { numbers: 2, unmatched: [] } }),
+               /Every number on this card \(2\)/);
+});
+
+test("renderCard: badges in front of the points, the reason under a doubtful one", () => {
+  const html = renderCard({
+    id: "j-1", kind: "train-today", headline: "h", verdict: "v",
+    bullets: ["HRV <b>38</b>", "sleep 93.4"],
+    sources: [{ kind: "measured", from: "today's readiness", called: true, unmatched: [] },
+              { kind: "measured", ref: "get_trend", called: false, unmatched: ["93.4"] }],
+    evidence: { recorded: true, reads: 1, numbers: 2, in_data: 1, unmatched: [{ where: "point 2", value: "93.4" }] },
+  }, { open: true });
+  assert.match(html, /class="src src-measured"[^>]*>your data<\/span> HRV &lt;b&gt;38/);
+  assert.match(html, /src-warn[^>]*>! your data/);
+  assert.match(html, /class="src-why">Marked as your data, but/);
+  assert.match(html, /How this card was made · looked at 1 thing · 1 of 2 numbers found there/);
+  assert.match(html, /data-evidence="j-1"/);
+  const old = renderCard({ id: "j-2", kind: "train-today", headline: "h", bullets: ["b"] }, { open: true });
+  assert.doesNotMatch(old, /class="src |How this card was made/, "an old card looks as it did");
+});
+
+test("evidenceSummary: counts every number not found, not only the listed ones", async () => {
+  const { evidenceSummary } = await import("../src/runspector/web/static/cards.js");
+  const listed = Array.from({ length: 12 }, (_, i) => ({ where: "point 1", value: String(i) }));
+  assert.equal(evidenceSummary({ recorded: true, reads: 2, numbers: 30, missing: 18, unmatched: listed }),
+               "looked at 2 things · 12 of 30 numbers found there");
+});
+
+test("renderEvidence: a record that was deleted is not called older than the record", async () => {
+  const { renderEvidence } = await import("../src/runspector/web/static/cards.js");
+  assert.match(renderEvidence({ recorded: false, gone: true }), /no longer there/);
+  assert.doesNotMatch(renderEvidence({ recorded: false, gone: true }), /before the app kept/);
+});
+
+test("evidence: an incomplete record checks nothing, and says why a card has none", async () => {
+  const { evidenceSummary, renderEvidence } = await import("../src/runspector/web/static/cards.js");
+  assert.equal(evidenceSummary({ recorded: true, checked: false, reads: 3, numbers: 9, missing: 0 }),
+               "looked at 3 things · record incomplete, numbers not checked");
+  const cut = renderEvidence({ recorded: true, calls: [], check: { checked: false, numbers: 9 } });
+  assert.match(cut, /too long to\s+keep whole/);
+  assert.doesNotMatch(cut, /Every number|Not found there/);
+  assert.match(renderEvidence({ recorded: false, old: true }), /before the app kept a record/);
+  assert.match(renderEvidence({ recorded: false }), /could not record/);
+});
+
+test("evidenceToggle: a failed load is tried again only when the section is opened again", async () => {
+  // A re-render inserts the section already open, and the browser fires
+  // `toggle` for it: loading on an open toggle with a failed record in the
+  // cache looped - fetch, fail, redraw, toggle, fetch - without end.
+  const { evidenceToggle } = await import("../src/runspector/web/static/cards.js");
+  assert.equal(evidenceToggle(true, undefined), "load", "opened, never tried");
+  assert.equal(evidenceToggle(true, "loading"), null);
+  assert.equal(evidenceToggle(true, { recorded: true }), null);
+  assert.equal(evidenceToggle(true, { error: "server gone" }), null, "the redraw after a failure");
+  assert.equal(evidenceToggle(false, { error: "server gone" }), "forget", "closed: the next opening tries again");
+  assert.equal(evidenceToggle(false, { recorded: true }), null, "a loaded record is kept");
+});

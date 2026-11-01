@@ -134,6 +134,129 @@ export function splitBullets(bullets, n = 2) {
   return { visible: b.slice(0, n), rest: b.slice(n) };
 }
 
+/** The points with where each comes from (`sources`, index for index, from
+ *  `evidence.split_marks`). Paired BEFORE empty points are dropped, so a
+ *  dropped point never hands its mark to the next one. */
+export function bulletItems(c) {
+  const src = Array.isArray(c?.sources) ? c.sources : [];
+  return (Array.isArray(c?.bullets) ? c.bullets : [])
+    .map((text, i) => ({ text, src: src[i] || null }))
+    .filter(x => typeof x.text === "string" && x.text);
+}
+
+/** The three places a point can come from, in the words the page uses. */
+export const SOURCES = {
+  measured: { label: "your data", tip: "Read from your Garmin data through the app's own tools" },
+  you: { label: "you said", tip: "From what you told the app: your note, the You tab or a check-in" },
+  derived: { label: "coach's reading", tip: "Worked out by the coach from your numbers and the rules" },
+};
+
+/** The badge of one point, or null. `warn` when the point says it is your data
+ *  and the record does not back that; `why` then says what is missing, in a
+ *  sentence the page shows under the point (a tooltip never reaches a phone). */
+export function sourceBadge(s) {
+  const k = s && SOURCES[s.kind];
+  if (!k) return null;
+  const why = [];
+  if (s.kind === "measured") {
+    if (s.called === false) why.push(`it names ${s.ref || "a source"}, which the coach did not look at`);
+    if (s.no_data) why.push("none of its numbers is in what the coach looked at");
+    else if (s.unmatched?.length) {
+      const one = s.unmatched.length === 1;
+      why.push(`${s.unmatched.join(", ")} ${one ? "is" : "are"} not in what the coach looked at - ${
+        one ? "it may be" : "they may be"} the coach's own arithmetic`);
+    }
+  }
+  return { kind: s.kind, label: k.label, warn: why.length > 0,
+           tip: s.from ? `${k.tip}: ${s.from}` : k.tip,
+           why: why.length ? `Marked as your data, but ${why.join("; ")}.` : "" };
+}
+
+/** The one line beside "How this card was made". */
+export function evidenceSummary(ev) {
+  if (!ev) return "";
+  if (!ev.recorded) return "not recorded for this card";
+  const n = Number(ev.reads) || 0;
+  const looked = `looked at ${n} thing${n === 1 ? "" : "s"}`;
+  // A record that is not the whole session checks nothing (`evidence.whole`).
+  if (ev.checked === false) return `${looked} · record incomplete, numbers not checked`;
+  // `missing` counts every number found nowhere; the list holds only the first.
+  const miss = Number(ev.missing ?? (ev.unmatched || []).length) || 0, total = Number(ev.numbers) || 0;
+  const nums = !total ? "" : miss ? `${total - miss} of ${total} numbers found there`
+    : `all ${total} numbers found there`;
+  return [looked, nums].filter(Boolean).join(" · ");
+}
+
+/** What a toggle of "How this card was made" does with the card's record:
+ *  "load" when it is opened and was never tried, "forget" a failed load when
+ *  it is closed - so the next opening tries again - else nothing. Never "load"
+ *  on a failure: a re-render inserts the section already open, the browser
+ *  fires `toggle` for it, and loading there looped without end after one
+ *  failed request (fetch, fail, redraw, toggle, fetch). */
+export function evidenceToggle(open, cached) {
+  if (open) return cached === undefined ? "load" : null;
+  return cached && typeof cached === "object" && cached.error ? "forget" : null;
+}
+
+/** "the headline", "point 2" - where a number sits, for the sentence. */
+const whereWords = w => (w === "headline" || w === "verdict" ? `the ${w}` : w);
+
+/** What the coach looked at for one card (`/api/cards/<id>/evidence`), as
+ *  HTML. `rec` is the record, "loading", or {error}. Every value in it is tool
+ *  output or model input and goes through `esc()`. `det(name)` keeps nested
+ *  disclosures open across a re-render. */
+export function renderEvidence(rec, det = () => "") {
+  if (!rec || rec === "loading") return `<div class="note">Loading…</div>`;
+  if (rec.error) return `<div class="note">The record could not be loaded: ${esc(rec.error)}</div>`;
+  const intro = `<p class="note">The coach can reach your data only through this app's own tools
+    - no web, no files, nothing else on this computer. This is everything it looked at for this
+    card, in order, with what came back.</p>`;
+  if (!rec.recorded) {
+    return `<p class="note">${rec.gone ? "The record of this card is no longer there - its file was deleted."
+      : rec.old ? "This card was made before the app kept a record of what the coach looked at."
+      : "The app could not record what the coach looked at for this card."}</p>`;
+  }
+  const ck = rec.check || {}, listed = ck.unmatched || [], total = Number(ck.numbers) || 0;
+  const missing = Number(ck.missing ?? listed.length) || 0;
+  const more = missing - listed.length;
+  const check = ck.checked === false
+    ? `<div class="ev-check ev-warn">This record is incomplete - the run's output was too long to
+        keep whole - so the numbers on this card are not checked against it.</div>`
+    : !total ? ""
+    : missing
+      ? `<div class="ev-check ev-warn">${esc(total - missing)} of ${esc(total)} numbers on this card
+          are in what the coach looked at. Not found there: ${listed.map(u =>
+            `<b>${esc(u.value)}</b> (${esc(whereWords(u.where))})`).join(", ")}${
+          more > 0 ? ` and ${esc(more)} more` : ""} - the coach worked
+          ${missing === 1 ? "it" : "them"} out itself, or ${missing === 1 ? "it is" : "they are"}
+          not backed by your data.</div>`
+      : `<div class="ev-check ev-ok">Every number on this card (${esc(total)}) is in what the coach
+          looked at.</div>`;
+  const honest = total && ck.checked !== false ? `<p class="note">Found means the number was in front of the coach - not
+    that it was read rightly. That part is yours to judge.</p>` : "";
+  const calls = (rec.calls || []).map((c, i) => `<li class="ev-call${c.error ? " ev-failed" : ""}">
+      <span class="ev-label">${esc(c.changed ? c.label : "Read " + c.label)}${
+        c.error ? " - failed" : ""}</span>
+      <span class="ev-tool mono">${esc(c.tool)}${c.args ? " " + esc(c.args) : ""}</span>
+      <details class="card-more ev-result" ${det("ev" + i)}><summary>What came back</summary>
+        <pre class="ev-pre mono">${esc(c.result || "(nothing)")}</pre></details></li>`).join("");
+  const list = calls ? `<ol class="ev-calls">${calls}</ol>`
+    : `<div class="note">It looked at nothing.</div>`;
+  const inp = rec.inputs || {};
+  const given = [["What the app knows about you", inp.about_you], ["Your note", inp.your_note],
+                 ["The task", inp.task]].filter(([, v]) => v)
+    .map(([k, v]) => `<div class="ev-given"><div class="ev-label">${esc(k)}</div>
+       <pre class="ev-pre mono">${esc(v)}</pre></div>`).join("");
+  const givenBox = given ? `<details class="card-more" ${det("evgiven")}><summary>What the coach
+    was given besides the rules</summary>${given}</details>` : "";
+  const foot = [modelShort(rec.model), inp.rules_sha256 ? `rules ${inp.rules_sha256.slice(0, 8)}` : "",
+                inp.app_version ? `app ${inp.app_version}` : "",
+                rec.complete === false ? "the record is incomplete" : "",
+                "kept with this card, deleted with it"].filter(Boolean);
+  return `<div class="ev">${intro}${check}${honest}${list}${givenBox}
+    <div class="card-metaline">${foot.map(esc).join(" · ")}</div></div>`;
+}
+
 /** Full text for display: line breaks stay, markup goes. NO Markdown parser —
  *  the text is escaped afterwards and placed into a `white-space: pre-wrap`
  *  element.
@@ -187,6 +310,7 @@ const state = new WeakMap();         // container element → {cards, opts}
 const jobsState = new WeakMap();     // container element → {jobs, opts}
 const followUps = new Map();         // card id → {job_id, ts}
 const jobLogs = new Map();           // job id → lines[] of the open log
+const evidenceCache = new Map();     // card id → its record, "loading" or {error}
 // Expanded <details> survive the re-render: the job poll rebuilds every 8 s,
 // and "3 more points" would snap shut each time — unusable while reading a
 // long analysis. Key "<id>|<name>".
@@ -238,7 +362,8 @@ export function renderCard(c, opts = {}) {
 
   let body = "";
   if (open) {
-    const { visible, rest } = splitBullets(c.bullets);
+    const items = bulletItems(c);
+    const visible = items.slice(0, 2), rest = items.slice(2);
     // `textPlain` FIRST, then truncate, then escape. The model answers in chat
     // Markdown often enough ("**Sessions:** 3 today"), and without this the
     // asterisks and fences were rendered literally - the function existed and
@@ -248,8 +373,17 @@ export function renderCard(c, opts = {}) {
     // The HEADLINE, the verdict and the delta go through it too: wiring only
     // the bullets left the most prominent line on the card - the one in the
     // <h3> - showing `**Bold** headline` verbatim.
-    const points = list => list.map(
-      b => `<p class="card-text">${esc(truncate(textPlain(b), 400))}</p>`).join("");
+    //
+    // Each point carries where it comes from: a small badge in front, and,
+    // when a point says it is your data and the record does not back that,
+    // the reason in a line under it.
+    const points = list => list.map(({ text, src }) => {
+      const b = sourceBadge(src);
+      const badge = b ? `<span class="src src-${esc(b.kind)}${b.warn ? " src-warn" : ""}"
+        title="${esc(b.tip)}">${b.warn ? "! " : ""}${esc(b.label)}</span> ` : "";
+      return `<p class="card-text">${badge}${esc(truncate(textPlain(text), 400))}${
+        b?.warn ? `<span class="src-why">${esc(b.why)}</span>` : ""}</p>`;
+    }).join("");
     const content = points(visible) + (rest.length
       ? `<details class="card-more" ${det("more")}><summary>${rest.length} more point${
           rest.length === 1 ? "" : "s"}</summary>${points(rest)}</details>`
@@ -260,6 +394,14 @@ export function renderCard(c, opts = {}) {
       ? `<details class="card-more card-delta-wrap" ${det("delta")}><summary>Since the last card</summary>
            <div class="card-delta">${esc(textPlain(c.delta))}</div></details>` : "";
     const metaLine = meta.length ? `<div class="card-metaline">${meta.map(esc).join(" · ")}</div>` : "";
+    // What the coach looked at - loaded when opened (`install()`), from the
+    // card's own record. Cards older than the record have none.
+    const evOpen = openDetails.has(`${id}|evidence`);
+    const evidence = c.evidence
+      ? `<details class="card-more card-evidence" ${det("evidence")} data-evidence="${esc(id)}">
+           <summary>How this card was made · ${esc(evidenceSummary(c.evidence))}</summary>${
+           evOpen ? renderEvidence(evidenceCache.get(id), n => det("evidence-" + n)) : ""}</details>`
+      : "";
     const proposal = renderProposal(c.proposal, opts);
     const fb = opts.feedback !== false ? renderFeedback(id, c.feedback) : "";
     const pending = followUps.get(id);
@@ -270,7 +412,7 @@ export function renderCard(c, opts = {}) {
            <summary>Feedback${value ? (value === "good" ? " · 👍" : " · 👎") : ""}${
              pending ? " · answer on its way" : ""}</summary>${fb}${fu}</details>` : "";
     body = `<div class="card-body">${content || `<div class="empty-note">No content.</div>`}${
-      proposal}${delta}${metaLine}${respond}</div>`;
+      proposal}${delta}${evidence}${metaLine}${respond}</div>`;
   }
   // Answers hang visibly BELOW the parent card — even when it is collapsed,
   // otherwise nobody would see that a follow-up question has been answered.
@@ -524,6 +666,10 @@ function install() {
     const k = d?.dataset?.det;
     if (!k) return;
     if (d.open) openDetails.add(k); else openDetails.delete(k);
+    const evId = d.dataset.evidence;
+    const act = evId ? evidenceToggle(d.open, evidenceCache.get(evId)) : null;
+    if (act === "load") loadEvidence(evId, d.closest("[data-cards]") || d, d.contains(document.activeElement));
+    else if (act === "forget") evidenceCache.delete(evId);
   }, true);
 
   document.addEventListener("click", ev => {
@@ -734,6 +880,27 @@ function renderJobRow(j, avg, opts) {
 }
 
 const logText = lines => (lines.length ? lines.slice(-200).join("\n") : "(log is empty)");
+
+/** Fetch a card's record, then draw the card again with it. `where` is taken
+ *  before the wait: the job poll may have rebuilt the card meanwhile. Drawing
+ *  again replaces the disclosure, so keyboard focus is put back on it. */
+async function loadEvidence(id, where, focused = false) {
+  const draw = () => {
+    const cont = rerender(where);
+    if (focused) {
+      (cont || document).querySelector(`details[data-evidence="${CSS.escape(id)}"] > summary`)?.focus();
+    }
+  };
+  evidenceCache.set(id, "loading");
+  draw();
+  try {
+    const r = await apiGet(`/api/cards/${encodeURIComponent(id)}/evidence`);
+    evidenceCache.set(id, r?.evidence || { error: "empty answer" });
+  } catch (e) {
+    evidenceCache.set(id, { error: e.message || "server gone" });
+  }
+  draw();
+}
 
 async function loadLog(id) {
   const r = await apiGet(`/api/jobs/${encodeURIComponent(id)}/log`);

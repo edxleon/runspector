@@ -738,3 +738,24 @@ test("heldLabel: a planned session the athlete's word holds back says so", async
   assert.equal(heldLabel({ held: "hold" }), "on hold");
   assert.equal(heldLabel({}), "");
 });
+
+test("You tab: what the AI reads and what is kept, in plain words", async () => {
+  const { recordCard, chatStep, youHtml } = await import("../src/runspector/web/static/you.js");
+  assert.equal(recordCard(null), "");
+  assert.equal(chatStep({ label: "today's readiness", changed: false }), "Read today's readiness");
+  assert.equal(chatStep({ label: "a session put on your watch", changed: true }), "A session put on your watch");
+  const empty = recordCard({ chats: [], chat_days: 14, cards_kept: 60, where: "~/.runspector/evidence" });
+  assert.match(empty, /No chat has used your data yet/);
+  assert.match(empty, /kept 14 days/);
+  assert.match(empty, /those steps are not in this record/, "says what the record does not hold");
+  assert.match(empty, /~\/\.runspector\/evidence/);
+  assert.match(empty, /How this card was made/);
+  const evil = "<img src=x onerror=alert(1)>";
+  const rows = recordCard({ chats: [{ ts: new Date().toISOString(), tool: "get_trend", label: evil,
+                                      detail: evil, ok: false, changed: false }],
+                            chat_days: 14, where: evil });
+  assert.doesNotMatch(rows, /<img/);
+  assert.match(rows, /rec-failed/);
+  assert.match(rows, /- failed/);
+  assert.match(youHtml([], null, {}, { chats: [], chat_days: 14, where: "x" }), /What the AI reads/);
+});

@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
-from .. import __version__, auth, facts, garmin, logic, onboarding, paths, snapshot, tools
+from .. import __version__, auth, evidence, facts, garmin, logic, onboarding, paths, snapshot, tools
 from .. import profile as profile_mod
 from ..store import Store
 from . import agent, jobs
@@ -207,6 +207,16 @@ class App:
             log.warning("facts unavailable: %s: %s", type(exc).__name__, exc)
             return []
 
+    def ai_record(self) -> dict | None:
+        """The You tab's record section. Never the reason the page fails: an
+        unreadable evidence folder hides the section, it does not 500 the state."""
+        try:
+            return {"chats": evidence.recent_chat_calls(20), "chat_days": evidence.CHAT_DAYS,
+                    "cards_kept": jobs.CARDS_MAX, "where": paths.display_path(paths.evidence_dir())}
+        except Exception:  # see above
+            log.warning("the AI record is not readable", exc_info=True)
+            return None
+
     def state(self) -> dict:
         snap = snapshot.assemble(self.store)
         return {
@@ -226,6 +236,9 @@ class App:
                           for t in self.templates()],
             "jobs": [jobs.public(j) for j in jobs.read_jobs(20)],
             "cards": self._cards_with_proposals(),
+            # What the AI read in chats, and what the app keeps of it - the You
+            # tab says it in plain words (`evidence.py`).
+            "ai_record": self.ai_record(),
             "worker": self.worker_health(),
             # The startup sync runs before anyone can press ↻, so its outcome has
             # to be readable on a plain page load. Otherwise "your data is 5 days
@@ -921,6 +934,21 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 text = ""
             return self._json({"lines": text.splitlines()[-400:]})
+        m = re.match(r"^/api/cards/(j-[0-9a-z-]+)/evidence$", route)
+        if m:
+            # 404 only for a card that is not there: a card made before the
+            # record existed answers "not recorded", which the page says so.
+            card = jobs.read_card(m.group(1))
+            if card is None:
+                return self._json({"error": "unknown card"}, 404)
+            doc = jobs.read_evidence(m.group(1))
+            if doc is None:
+                # Recorded once and the file is gone (the folder was cleared),
+                # or made before records existed: the page says which.
+                summary = card.get("evidence") if isinstance(card.get("evidence"), dict) else None
+                gone = bool(summary and summary.get("recorded"))
+                return self._json({"evidence": {"recorded": False, "gone": gone, "old": summary is None}})
+            return self._json({"evidence": public_evidence(doc)})
         return self._json({"error": "not found"}, 404)
 
     def _post(self):
@@ -960,6 +988,42 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "card_id": m.group(1)})
             return self._json({"error": "unknown card"}, 404)
         return self._json({"error": "not found"}, 404)
+
+
+def public_evidence(doc: dict) -> dict:
+    """A card's evidence file as the page gets it: the shape enforced, each
+    tool named in plain words. Everything in it is tool output or model input -
+    the page escapes it like the card itself."""
+    def s(v, n: int) -> str:
+        return str(v if v is not None else "")[:n]
+
+    calls = []
+    for c in (doc.get("calls") if isinstance(doc.get("calls"), list) else [])[:60]:
+        if not isinstance(c, dict):
+            continue
+        tool = s(c.get("tool"), 60)
+        args = c.get("input") if isinstance(c.get("input"), dict) else {}
+        calls.append({"tool": tool, "label": evidence.label(tool),
+                      "changed": tool in evidence.CHANGING_TOOLS,
+                      "args": s(json.dumps(args, ensure_ascii=False, default=str), 300) if args else "",
+                      "error": c.get("error") is True,
+                      "result": s(c.get("result"), evidence.RESULT_CAP + 60)})
+    inputs = doc.get("inputs") if isinstance(doc.get("inputs"), dict) else {}
+    check = doc.get("check") if isinstance(doc.get("check"), dict) else {}
+    unmatched = check.get("unmatched") if isinstance(check.get("unmatched"), list) else []
+    return {"recorded": doc.get("recorded") is True, "complete": doc.get("complete") is not False,
+            "model": s(doc.get("model"), 60), "recorded_at": s(doc.get("recorded_at"), 32),
+            "calls": calls,
+            "inputs": {k: s(inputs.get(k), 9000) for k in
+                       ("app_version", "rules_sha256", "task", "about_you", "your_note", "previous_card")
+                       if inputs.get(k)},
+            "check": {"checked": check.get("checked") is not False,
+                      "numbers": check.get("numbers") if isinstance(check.get("numbers"), int) else 0,
+                      "in_data": check.get("in_data") if isinstance(check.get("in_data"), int) else 0,
+                      "missing": (check.get("missing") if isinstance(check.get("missing"), int)
+                                  else len(unmatched)),
+                      "unmatched": [{"where": s(u.get("where"), 20), "value": s(u.get("value"), 20)}
+                                    for u in unmatched[:40] if isinstance(u, dict)]}}
 
 
 def _first_run(app: App) -> bool:
@@ -1052,6 +1116,8 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
               f"window, or give this one its own RUNSPECTOR_HOME. Two instances on one home\n"
               f"fight over the same jobs.", file=sys.stderr)
         return 1
+    # The chat record keeps CHAT_DAYS days also when no chat starts a server.
+    evidence.prune_chats()
     worker = threading.Thread(target=app.worker, daemon=True, name="runspector-worker")
     worker.start()
     if sync_on_start and not demo and not _first_run(app):

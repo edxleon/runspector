@@ -1474,7 +1474,7 @@ function renderYou() {
   const active = document.activeElement;
   const typing = active && active.matches && active.matches("[data-note]")
     ? [active.selectionStart, active.selectionEnd] : null;
-  root.innerHTML = youHtml(D().facts, D().week, you);
+  root.innerHTML = youHtml(D().facts, D().week, you, D().ai_record);
   if (typing) {
     const area = root.querySelector("[data-note]");
     area?.focus();

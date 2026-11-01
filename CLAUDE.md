@@ -20,6 +20,7 @@ number to lower. A Biome version bump changes `ci.yml`, the hook, this line and 
 
 | Change | Also |
 |---|---|
+| the card frame (`FRAME` in `web/agent.py`) | a real card run (`runspector serve`, a card on a throw-away copy): the evals never see the frame, only `skills/`; its source marks are read by `evidence.split_marks` and checked in `tests/test_evidence.py` |
 | `src/runspector/skills/*.md` or `evals/cases.yaml` | full eval run (`uv run python evals/run_evals.py`), it rewrites `evals/RESULTS.md`; a new case also once with `--no-skills` - it must FAIL there; a flaky case: narrow the judge question first (`evals/README.md`) |
 | the wording of a tool in `tools.py` | `uv run python evals/fixture_gen.py [case-id]` and paste into `cases.yaml`; `tests/test_eval_fixture.py` says which |
 | `facts.py`, the athlete block in `web/agent.py`, `get_athlete_profile` | the same re-render (`open-question-biggest-lever-first` shows the profile); the athlete block stays before `TASK:` and outside `PROMPT_CAP` (`tests/test_web.py`) |

@@ -17,7 +17,7 @@ import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .. import paths
+from .. import evidence, paths
 
 ACTIVE = ("queued", "running")
 FINAL = ("done", "failed", "timeout", "cancelled")
@@ -62,6 +62,12 @@ def log_path(job_id: str) -> Path:
 
 def card_path(card_id: str) -> Path:
     return paths.cards_dir() / f"{_checked(card_id)}.json"
+
+
+def evidence_path(card_id: str) -> Path:
+    """What the coach read for a card (`evidence.py`). It lives and dies with
+    the card: `delete_card` and `cleanup_cards` remove both."""
+    return paths.evidence_dir() / f"{_checked(card_id)}.json"
 
 
 #: How long `_write_json` keeps trying to swap a file in. On Windows a reader
@@ -182,11 +188,23 @@ def delete_card(card_id: str) -> bool:
     if not ID_RE.fullmatch(card_id) or not card_path(card_id).is_file():
         return False
     card_path(card_id).unlink(missing_ok=True)
+    evidence_path(card_id).unlink(missing_ok=True)
     return True
 
 
 def read_card(card_id: str) -> dict | None:
     return _read_json(card_path(card_id)) if ID_RE.fullmatch(card_id) else None
+
+
+def write_evidence(card_id: str, doc: dict) -> None:
+    _write_json(evidence_path(card_id), doc)
+
+
+def read_evidence(card_id: str) -> dict | None:
+    """A card's evidence - only while the card itself exists."""
+    if not ID_RE.fullmatch(card_id) or not card_path(card_id).is_file():
+        return None
+    return _read_json(evidence_path(card_id))
 
 
 def list_cards() -> list[tuple[str, dict]]:
@@ -215,6 +233,13 @@ def cleanup_cards() -> None:
         seen.add(card_key(c))
         if idx >= CARDS_MAX and not first_of_kind:
             card_path(cid).unlink(missing_ok=True)
+            evidence_path(cid).unlink(missing_ok=True)
+    # A record whose card never got written (or went another way) goes too.
+    # Safe here: this runs on the worker thread after `agent.run`, the one
+    # writer of records, never between its record and its card.
+    for p in paths.evidence_dir().glob("j-*.json"):
+        if ID_RE.fullmatch(p.stem) and not card_path(p.stem).is_file():
+            p.unlink(missing_ok=True)
 
 
 def _cap(value, length: int) -> str:
@@ -255,5 +280,47 @@ def public_cards(limit: int = 10) -> list[dict]:
             "proposal": _cap(c.get("proposal"), 40) if isinstance(c.get("proposal"), str) else None,
             "feedback": ({"value": str(fb.get("value") or "")[:10], "text": _cap(fb.get("text"), 500),
                           "ts": str(fb.get("ts") or "")[:32]} if fb else None),
+            "sources": ([_public_source(s) for s in c["sources"][:8]]
+                        if isinstance(c.get("sources"), list) else None),
+            "evidence": _public_evidence(c.get("evidence")),
         })
     return out
+
+
+def _numbers_list(items, n: int) -> list[dict]:
+    return [{"where": _cap(u.get("where"), 20), "value": _cap(u.get("value"), 20)}
+            for u in (items if isinstance(items, list) else [])[:n] if isinstance(u, dict)]
+
+
+def _public_source(s) -> dict | None:
+    """Where one point comes from (`evidence.split_marks`, checked in `card_record`)."""
+    if not isinstance(s, dict) or s.get("kind") not in ("measured", "you", "derived"):
+        return None
+    tool = s.get("tool") if isinstance(s.get("tool"), str) else None
+    return {"kind": s["kind"], "ref": _cap(s.get("ref"), 60) or None,
+            # The tool in the page's words: "today's readiness", not its name.
+            "from": evidence.label(tool) if tool else None,
+            "unmatched": [_cap(v, 20) for v in (s.get("unmatched") or [])[:6]
+                          if isinstance(v, (str, int, float))],
+            "no_data": s.get("no_data") is True,
+            "called": s.get("called") if isinstance(s.get("called"), bool) else None}
+
+
+def _public_evidence(e) -> dict | None:
+    """The card's summary of its evidence; the full record is behind
+    `/api/cards/<id>/evidence`."""
+    if not isinstance(e, dict):
+        return None
+
+    def count(k: str) -> int:
+        v = e.get(k)
+        return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+
+    unmatched = _numbers_list(e.get("unmatched"), 12)
+    return {"recorded": e.get("recorded") is True, "complete": e.get("complete") is not False,
+            "checked": e.get("checked") is not False,
+            "reads": count("reads"), "numbers": count("numbers"), "in_data": count("in_data"),
+            # every number found nowhere, also past the listed ones (older
+            # cards carry only the list)
+            "missing": count("missing") if "missing" in e else len(unmatched),
+            "unmatched": unmatched}

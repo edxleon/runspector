@@ -183,7 +183,9 @@ def test_command_is_an_allowlist(tmp_path, monkeypatch):
     # ...and the second lock, which does not depend on that flag: the child
     # server is told it is a card run, and refuses the write itself.
     assert agent.mcp_config(None)["mcpServers"]["runspector"]["env"]["RUNSPECTOR_UNATTENDED"] == "1"
-    assert cmd[cmd.index("--output-format") + 1] == "json"
+    # The whole session as JSON events - the card's record of what it read -
+    # which the CLI only prints with `--verbose`.
+    assert cmd[cmd.index("--output-format") + 1] == "stream-json" and "--verbose" in cmd
     assert "--dangerously-skip-permissions" not in cmd
     assert "--safe-mode" not in cmd                           # it would disable our MCP server too
     assert "--model" not in cmd
@@ -234,9 +236,17 @@ elif mode == "prose":
 elif mode == "crash":
     sys.stderr.write("boom: something broke\\n")
     sys.exit(1)
-envelope = {"result": result, "total_cost_usd": 0.01, "is_error": False,
+# The session as `--output-format stream-json --verbose` prints it - the
+# format the app asks for - so every guard below runs on the real shape.
+envelope = {"type": "result", "result": result, "total_cost_usd": 0.01, "is_error": False,
             "num_turns": 1 if mode == "one_turn" else 3,
             "modelUsage": {"helper": {"costUSD": 0.001}, "stub": {"costUSD": 0.01}}}
+print(json.dumps({"type": "system", "subtype": "init", "model": "stub"}))
+if mode != "one_turn":
+    print(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t1", "name": "mcp__runspector__get_training_readiness", "input": {}}]}}))
+    print(json.dumps({"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": "HRV 52 ms"}]}}))
 print(json.dumps(envelope))
 '''
 
