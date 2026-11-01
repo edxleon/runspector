@@ -50,7 +50,7 @@ preparation (14) stays last for the reasons in its section.
 | # | Gap | In |
 |---|---|---|
 | 1 | Progression without a plan: a brake, a down week when due, a measurement when due, the next stimulus, a return week | v0.3 |
-| 2 | A way back from the athlete: ill, pain, sore, stressed - with a state that lasts until it is over (how it felt is still open, above) | v0.7 (on `main`, not yet released) |
+| 2 | A way back from the athlete: ill, pain, sore, stressed - with a state that lasts until it is over (how it felt is still open, above) | v0.7 |
 | 3 | An easier option for every hard session in the plan, computed by the rules | v0.6 |
 | 4 | Rep targets by pace, not heart rate, once the pace is real | v0.6 |
 | 7 | Short weekdays kept short (the time per weekday is still open, above) | v0.6 |
@@ -70,7 +70,7 @@ card and so came before Garmin's own number (11).
 
 ## 2. A way back from the athlete
 
-*In v0.7 (on `main`, not yet released):* four buttons under today's call (ill, pain, sore legs, stressed) and the `check_in` tool, which a card run cannot call. A check-in holds until the athlete says it is over, or runs out after 3 days without a new word (sore legs: 2). Ill or pain rest the day whatever the light says, also before the morning's sync, and once over, as many easy days follow as it held (at most 7). Sore or stressed take the hard session but not the run. The week planner holds the week and puts no hard session before the earliest day the day rule could allow one; a single hard proposal on such a day is refused.
+*Shipped in v0.7:* four buttons under today's call (ill, pain, sore legs, stressed) and the `check_in` tool, which a card run cannot call. A check-in holds until the athlete says it is over, or runs out after 3 days without a new word (sore legs: 2). Ill or pain rest the day whatever the light says, also before the morning's sync, and once over, as many easy days follow as it held (at most 7). Sore or stressed take the hard session but not the run. The week planner holds the week and puts no hard session before the earliest day the day rule could allow one; a single hard proposal on such a day is refused.
 
 Still open: *how it felt*. A Garmin watch that asks after the run (Self Evaluation) stores the answer in the activity's detail - a feel and a perceived effort - so it belongs in the detail sync, which already fetches every run of the last 35 days; the app asks only after a run the watch did not ask about. Read beside the run's heart rate, a session that felt harder than its zones say is a signal the light does not have.
 
