@@ -4,41 +4,75 @@ What the app would still need to be a coach rather than a very good daily advise
 of what each item does for a runner who uses it every day - not in the order of effort. Written
 2026-10-28 from a review of v0.2.2 against the code; each gap names where it lives. Reordered
 2026-10-30 after a second review against daily use, which added three gaps (3, 8, 10), widened
-two (2, 14) and ordered the rest by what each does for the runner.
+two (2, 14) and ordered the rest by what each does for the runner. Extended 2026-11-01 by a third
+review, which checked every claim here against the code, corrected three that the data had
+overtaken (6, 13, and how a run felt in 2), added seven gaps (15-21), moved one limit from
+"Smaller" into a gap of its own (15) and split what is left from what has shipped.
 
-The first item has since shipped (v0.3, "what comes next": the planner reads the history for a
-brake, a down week, a measurement, a return week and the next stimulus, in code), v0.6 shipped
-every item of small effort: 3, 4, 7, 8, 9, 11 and 12, and v0.7 the next one by benefit, 2. Each is
-marked below with what it does and what it left open. They stay here because the reasoning behind
-the order is the point of this file.
+The numbers are names, not ranks: an item keeps its number when the order changes, so a commit or
+a release note that cites one still points at the right section. The order is the table's.
+
+## What is left, by benefit
 
 | # | Gap | For the runner | Effort |
 |---|---|---|---|
-| 1 | Progression without a plan: a brake, a down week when due, a measurement when due, the next stimulus, a return week - *shipped in v0.3* | very high | medium |
-| 2 | A way back from the athlete: ill, sore, stressed, how it felt - with a state that lasts until it is over - *shipped in v0.7, except how it felt* | high | medium |
-| 3 | An easier option for every hard session in the plan, computed by the rules - *shipped in v0.6* | high | small |
-| 4 | Rep targets by pace, not heart rate, once the pace is real - *shipped in v0.6* | high (anyone without a chest strap) | small |
+| 15 | The light rests a day on one weak signal, and holds days easy for too little load | high (every morning) | small in code, medium in evals |
+| 6 | The proposed session matched against the run that followed, and the same reps compared across weeks | high | medium |
+| 16 | A week planned and put on the watch without Claude | high (anyone without Claude Code) | small to medium |
 | 5 | A session with your own structure, in your own words | high | medium |
-| 6 | The proposed session matched against the run that followed | high | medium |
 | 7 | Session sizes from the athlete's own time per weekday and usual run lengths - *short days shipped in v0.6* | medium to high (every planned week) | small |
-| 8 | Monotony and weekly strain as a second load signal beside ACWR - *shipped in v0.6* | medium (rarely fires) | small |
-| 9 | `runspector today` for the morning; a sync when the page comes back into focus - *shipped in v0.6* | medium | tiny |
+| 2 | How a run felt - *the rest of the item is in v0.7* | medium | small |
+| 17 | The planned week's load shown before the yes | medium (trust, and a check on the planner) | small |
 | 10 | Where each statement on a card comes from: measured, said by you, or derived | medium (trust) | medium |
-| 11 | Garmin's own readiness beside the app's - *shipped in v0.6* | medium (trust) | small |
-| 12 | Body weight in the sync - *shipped in v0.6* | medium | small |
+| 18 | What kind of strength day it was: legs, upper body, whole body | medium (runners who lift) | small |
+| 19 | A planned session moved to another day | medium | medium |
+| 20 | A fitness trend beside VO2max: aerobic decoupling on steady runs | medium | medium |
 | 13 | Deeper history on first install | medium (install day only) | medium |
+| 21 | Installed from Claude Desktop in one file | medium (install day, Claude Desktop users) | medium |
 | 14 | Race preparation towards a goal race: base, build and taper, with the race itself known | medium (those with a date) | high |
 
-Why this order: the easier option (3) helps on every hard day and costs almost nothing, because
-the rules already know the easy version of each session; it comes before pace targets (4) because
-it needs neither a chest strap nor a new measurement. Session sizes from the athlete's own time
-(7) shape every planned week, so they come before monotony (8), which for most hobby runners
-rarely fires. Of the trust items, where a statement comes from (10) touches every card and so
-comes before Garmin's own number (11). Deeper history (13) helps on install day only.
+Why this order: the light (15) acts every morning for every runner, and its heaviest word, a rest
+day, can hang on a single cut-off that the app itself grades as having no trial behind it - so it
+comes first although the code is small. Matching the run to its session (6) comes next because it
+is how the app learns whether its own prescriptions work, and the exact link turned out to be in
+the data already. A week on the watch without Claude (16) is the difference between a plan and
+none for a runner without Claude Code and changes nothing for one with it, so it follows the two
+items every runner gets and comes before your own structure (5), which helps those who want what
+the menu does not hold. Session sizes from the athlete's own time (7) shape every planned week. How
+a run felt (2) is cheap now that the watch's own answer is in the data. The week's projected load
+(17) is small and guards the yes. Of the trust items, where a statement comes from (10) touches
+every card. Strength days (18), moving a session (19) and a second fitness trend (20) help part of
+the runners; deeper history (13) and the one-file install (21) help on install day only; race
+preparation (14) stays last for the reasons in its section.
+
+## Shipped
+
+| # | Gap | In |
+|---|---|---|
+| 1 | Progression without a plan: a brake, a down week when due, a measurement when due, the next stimulus, a return week | v0.3 |
+| 2 | A way back from the athlete: ill, pain, sore, stressed - with a state that lasts until it is over (how it felt is still open, above) | v0.7 (on `main`, not yet released) |
+| 3 | An easier option for every hard session in the plan, computed by the rules | v0.6 |
+| 4 | Rep targets by pace, not heart rate, once the pace is real | v0.6 |
+| 7 | Short weekdays kept short (the time per weekday is still open, above) | v0.6 |
+| 8 | Monotony and weekly strain as a second load signal beside ACWR | v0.6 |
+| 9 | `runspector today` for the morning; a sync when the page comes back into focus | v0.6 |
+| 11 | Garmin's own readiness beside the app's | v0.6 |
+| 12 | Body weight in the sync | v0.6 |
+
+Each from 2 on keeps its section below, with what it does and what it left open, because the reasoning behind
+the order is the point of this file. The order they had, and why: progression without a plan (1)
+came first, "very high" for the runner. The easier option (3) helps on every hard day and costs
+almost nothing, because the rules already know the easy version of each session; it came before
+pace targets (4) because it needs neither a chest strap nor a new measurement. Session sizes from
+the athlete's own time (7) shape every planned week, so they came before monotony (8), which for
+most hobby runners rarely fires. Of the trust items, where a statement comes from (10) touches every
+card and so came before Garmin's own number (11).
 
 ## 2. A way back from the athlete
 
-*Shipped in v0.7:* four buttons under today's call (ill, pain, sore legs, stressed) and the `check_in` tool, which a card run cannot call. A check-in holds until the athlete says it is over, or runs out after 3 days without a new word (sore legs: 2). Ill or pain rest the day whatever the light says, also before the morning's sync, and once over, as many easy days follow as it held (at most 7). Sore or stressed take the hard session but not the run. The week planner holds the week and puts no hard session before the earliest day the day rule could allow one; a single hard proposal on such a day is refused. Still open: *how it felt*. Newer Garmin watches ask for perceived effort and feel after the run (Self Evaluation), so it belongs in the sync before the app asks a second time.
+*In v0.7 (on `main`, not yet released):* four buttons under today's call (ill, pain, sore legs, stressed) and the `check_in` tool, which a card run cannot call. A check-in holds until the athlete says it is over, or runs out after 3 days without a new word (sore legs: 2). Ill or pain rest the day whatever the light says, also before the morning's sync, and once over, as many easy days follow as it held (at most 7). Sore or stressed take the hard session but not the run. The week planner holds the week and puts no hard session before the earliest day the day rule could allow one; a single hard proposal on such a day is refused.
+
+Still open: *how it felt*. A Garmin watch that asks after the run (Self Evaluation) stores the answer in the activity's detail - a feel and a perceived effort - so it belongs in the detail sync, which already fetches every run of the last 35 days; the app asks only after a run the watch did not ask about. Read beside the run's heart rate, a session that felt harder than its zones say is a signal the light does not have.
 
 "Heavy legs", "a cold", "a rough week at work", "that was on a treadmill", a perceived effort:
 none of it can be recorded. What is said in chat is gone with the chat; a card remembers only
@@ -98,13 +132,34 @@ What it takes: a `structure` parameter the builder validates instead of chooses 
 fits the route or the budget, spacing - the preview stays the gate), two or three more kinds,
 and a free-text field beside the form whose words the agent turns into the structured call.
 
-## 6. The proposed session matched against the run
+The model's part stays narrow: it turns the words into that structure and names zones, never
+numbers. The numbers come from the athlete's own zones in code, and a zone the app cannot fill
+becomes an open step, not a guess. A plain parse of the same words checks the model's: when the
+total the athlete said and the steps disagree by more than a few minutes, the preview says so
+instead of filing it.
 
-`runcoach_workouts` knows what was uploaded, `activities` knows what was run; nothing links
-them (Garmin's activity list carries no workout reference). "Analyze this run" does not know
-the run was Tuesday's 4×4, nor whether the reps reached the zone-5 floor. Matching by day and
-sport, flagged as a match, would let the week strip say "as planned / deviated / not run" and
-let the coach learn from its own prescriptions.
+## 6. The proposed session matched against the run, and the same reps across weeks
+
+`runcoach_workouts` knows what was uploaded, `activities` knows what was run, and nothing links
+them yet. "Analyze this run" does not know the run was Tuesday's 4×4, nor whether the reps reached
+the zone-5 floor. Garmin's activity *list* carries no workout reference, but the activity *detail*
+does: a run started from a scheduled workout names that workout's id (`associatedWorkoutId` in its
+metadata). For the app's own sessions the link is therefore exact, not a guess. A run not started
+from one - the athlete ran the session freehand - can be offered as a match by day and sport, which
+the athlete confirms; a pair they reject stays rejected.
+
+With the link, the week strip can say "as planned / deviated / not run", and the coach learns from
+its own prescriptions. It also gives what no Garmin screen shows: the same session compared across
+weeks - "4×4 min four weeks ago at 4:35/km and 172 bpm, today 4:28 at 170". Garmin's laps of a
+workout run are the app's own steps, so rep 3 of one session is rep 3 of the other, no lap
+guessing. Within a session, the rep where the pace falls off while the heart rate climbs names a
+structure that started too fast. This is also how the app finds out whether its rules work for
+more than the one athlete they have been run with.
+
+What it takes: the detail sync reads the workout id (it already fetches every run of the last 35
+days) into a column on `activities`; the reps from `activity_splits` keyed by the workout's steps;
+a match table for the confirmed freehand runs; the comparison under "analyze this run" and on the
+Trend tab, only between sessions of the same kind and structure.
 
 ## 7. Session sizes from the athlete's own time
 
@@ -173,10 +228,11 @@ weigh-ins are not fetched, so the one confounder every athlete can name is not i
 
 ## 13. Deeper history on first install
 
-The sync caps at 90 days, the default is 30–35, the Trend tab draws 56. On install day "why is
-my VO2max not moving?" cannot be answered - the card says so itself. A one-off, throttled deep
-backfill (daily metrics and the activity list, no detail) would give the founding question its
-data.
+The activity list already goes back 26 weeks (since v0.4.1) and run details 35 days, but the
+daily metrics - where the VO2max history lives - start with 30 days on the first sync and cap at
+90, and the Trend tab draws 56. On install day "why is my VO2max not moving?" cannot be answered -
+the card says so itself. A one-off, throttled deep backfill of the daily metrics would give the
+founding question its data.
 
 ## 14. Race preparation
 
@@ -193,18 +249,131 @@ and Sunday is a day off, or the target time needs more weekly running than the r
 allow - the app asks one question before it plans, and holds the plan until it is answered. The
 block stays code; the question is the only place the conversation shapes it.
 
+## 15. The light and one weak signal
+
+The light has one rule for its strongest word: one REST signal makes the day REST
+(`logic.readiness_verdict`, the table in `skills/zones.md`). A sleep score of 49 after one bad
+night, or a Body Battery peak of 39, rests the day on its own - and for those cut-offs, and the
+resting-HR ones, `zones.md` itself says no trial stands behind them; sleep score and Body Battery
+are Garmin's own composites. The step between 49 and 50 is not the fault: any rule has one, and a
+smooth score would cost the light the one thing it has over a vendor's number, that the athlete can
+see why. The fault is how much a single soft signal decides. For a runner whose risk is running too
+little rather than too much, a rest day for a weak reason costs more than it protects.
+
+The other half sits on the load axis. An ACWR under 0.8 with more than two days since a hard
+session dampens the day to EASY ("stimulus missing"), which answers too little load with less of
+it. After a few days off - a cold, a sore calf - it keeps every day easy until the ratio recovers:
+two to three weeks of easy running for the simulator's runner with a sore calf, on top of the easy
+days the check-in already held.
+
+What it takes: REST from the strong signals - HRV status LOW or POOR (Garmin's own, against the
+athlete's baseline), resting HR +7 or more, an open ill or pain check-in - or from the two weak
+rest signals together; a sleep score under 50 or a Body Battery peak under 40 alone makes the day
+EASY. ACWR above 1.5 drops to EASY whatever its source, since the spike claim is the disputed part.
+ACWR under 0.8 stays on the Trend tab and in the readiness text as context and dampens no day; what
+to do about a missing stimulus is the planner's question (`next_stimulus`), not the light's. Before
+the change the literature is read again - how HRV-guided training trials answer a drop, and the
+evidence on undertraining - and every cut-off gets its grade in `zones.md`. A scenario test red
+against the old rule first, the sweep, the golden week, and a full eval run, since the readiness
+text in the fixtures changes.
+
+## 16. A week on the watch without Claude
+
+Without Claude the app reads, decides and shows: the light, the runs, the trends, the sync. What it
+cannot do is the part a runner feels most - a week of sessions on the watch - although nothing in
+that part needs a model. `planning.build_week` builds the week in code, `propose_week` files it,
+the preview is the app's, and `plan.apply` puts it on the watch with read-back and undo. Today the
+only way to `propose_week` is the coach, a card or a chat, so a runner without Claude Code gets the
+rules' verdict every morning and never the week the same rules would write.
+
+What it takes: a "Plan my week" button that calls the same `propose_week` the MCP tool calls and
+shows the proposal the coach would have filed - the sessions, the easier option under each hard
+one, the assumptions - with the same "Put on watch" and the same undo. The check-in gate, the 48
+hours and the progression live in code, so they hold on this path unchanged, and the write path
+itself does not change. A test: the button's proposal equals the tool's for the same day. The
+README's "Without Claude" then names the coach's words as the one thing that needs it.
+
+## 17. The planned week's load before the yes
+
+The planner caps each week (+10 %, at most 1.1 × the larger of the last two) and holds it after a
+monotonous heavy one, but the preview shows minutes, not what those minutes would do to the app's
+own load signals. A runner about to say yes cannot see "after this week your load ratio would sit
+near 1.4" - and neither can a test.
+
+What it takes: each planned session's load estimated from the athlete's own load per minute for
+that kind of session over the last weeks, laid over the real days, so the preview can say where the
+computed ACWR and the monotony would land at the end of the week if it is run as planned (Garmin's
+own ratio cannot be projected); a line only when one would cross its band (1.3, 2.0). A property
+test over the simulator's runners: no week planned from a steady history projects above 1.5 - if
+one does, the planner's cap is wrong, not the line.
+
+## 18. What kind of strength day it was
+
+A day with another sport keeps the quality run off that day and the next (`habits.py`, the You
+tab's sport days), whatever the session was. A heavy leg session the day before threshold reps is
+what costs the reps; an upper-body session costs them little, yet it blocks the same two days.
+Garmin cannot tell the two apart for the app: its heart-rate load scores a strength session far
+below a run, so ACWR barely sees one, and the watch's exercise recognition leaves many sets unnamed.
+
+What it takes: the athlete names it. On the You tab each sport day gets "legs", "upper body" or
+"whole body"; whole body is the default and today's rule. Legs and whole body keep today's rule;
+upper body keeps the quality run off that day, not the next. A profile key with its `validate`,
+the row in `you.js` (`WEEK_ROWS`) and the planner's reading in `habits.week`; a scenario test red
+first.
+
+## 19. A planned session moved to another day
+
+"Thursday's intervals on Friday" is the most common change to a week, and the app cannot take it.
+A red day can swap the hard session for its easier version and a week can be planned again, but a
+single session cannot be moved.
+
+What it takes: a move that checks the new day against the same rules as a planned one - 48 hours
+between hard stimuli, the check-in gate, sport days and days off - and refuses with the reason when
+it fails. On Garmin it is the app's own unschedule and schedule, never a delete (`plan.py`); a run
+already done is not moved; a day that already holds a session asks first. Undo as for every apply.
+It is on the write path, so it gets the deep review.
+
+## 20. A fitness trend beside VO2max
+
+Garmin's VO2max moves only when a run re-estimates it; between such runs the carried-forward value
+says nothing (`get_vo2max_history` shows only the days it changed). A runner asking "am I getting
+fitter?" in a month of easy running has no second number. Aerobic decoupling is one: on a steady
+run, the speed per heartbeat in the second half against the first. The smaller the drop, the better
+the aerobic base holds - and it needs no new sensor, only the splits the app already stores
+(`activity_splits`).
+
+What it takes: runs of 45 minutes or more without reps, weighted by time, not by lap count; runs in
+heat or with much climbing left out (the temperature and each split's elevation gain are stored);
+the trend on the Trend tab beside VO2max. The usual 5 % line is a convention and is graded so in
+`zones.md`; a single run is noise, so only the trend is shown.
+
+## 21. Installed from Claude Desktop in one file
+
+Today the MCP part takes a terminal: an install with `uv` or `pipx`, `runspector login`, then an
+entry in Claude Desktop's JSON configuration. Claude Desktop can also install a local MCP server
+from one bundle file (an MCP Bundle, `.mcpb`), and the bundle's `uv` server type lets the app ship
+its `pyproject.toml` instead of a frozen environment. For a Desktop user the MCP part becomes one
+file.
+
+The hard part is the Garmin sign-in. The password and the MFA code must never pass through the
+chat, and a bundle's settings are no place for a one-time code, so a server without a Garmin
+session would start the web app's sign-in dialog (`auth.WebLogin`) on 127.0.0.1 and its first
+answer would point there. The `uv` server type is still marked experimental; its state is checked
+before anything is built. An installer of its own (Electron, Tauri) is not on this list: signing
+and notarising for two systems would be a second product to keep alive.
+
 ## Smaller
 
 - Cards are written in English whatever the athlete's language; a `RUNSPECTOR_LANG` would be cheap.
-- Strength and cycling count as hard days (good) but have no place in a planned week.
+- Strength and cycling count as hard days and keep the quality run off their day and the next
+  (good), but get no slot of their own in a planned week; what kind of strength day it was is 18.
+- From four running days a week the planner sets two quality sessions. For a runner with a short
+  or patchy history that is a lot; whether the second one should wait for a few consistent weeks
+  is open.
 - Menstrual-cycle data, which Garmin has, appears nowhere.
 - Every proposal creates a new Garmin workout and nothing deletes one; after months the library
   is full of "VO2max 4x4 min".
 - After ill or pain the app keeps as many days easy as it held, and that is all: no return schedule beyond it, deliberately.
-- After a few days off - pain, a cold - the light reads the lower load as ACWR < 0.8 ("stimulus missing")
-  and keeps every day easy until the ratio recovers, two to three weeks of easy running for the synthetic
-  runner with a sore calf. Whether that flag should dampen a day at all after a break the app itself
-  prescribed is open; it needs the evidence on undertraining read again first.
 - The weeks after an illness or a pain are sized from a median that holds the weeks it took out, so they
   climb back slowly (the synthetic runner: 265 min before, ~150 seven weeks later). A pause of ten days
   or more already rebuilds towards the level before it; a check-in of a few days could do the same.
@@ -212,6 +381,14 @@ block stays code; the question is the only place the conversation shapes it.
   the one before it - a measurement week's steady block is shorter than the threshold session it
   replaces, or the same budget fills one day fewer - because the step floor compares budgets, not the
   sessions built from them, and a small week may sit up to 15 % above its budget.
+- A pain check-in is one flag: no body part, no course. "Left calf, better for three days" would let
+  the coach say more - picked by the athlete, never pulled from a note by the model.
+- Reps by pace ignore the heat: on a hot day a pace band set from cooler runs is harder than the
+  zone it stands for. The run's temperature is stored; a forecast would be the app's first call to
+  anything but Garmin.
+- The data directory is made 0700 only when the app creates it, and `runspector doctor` warns
+  about a wider one; the database file itself takes the umask. 0600 on creation would hold where
+  someone widened the directory.
 - The evals run on a different model and in `--safe-mode`; a green suite is not the shipped coach.
 - The simulator's runners since v0.6: one whose settings contradict themselves, one who says yes to
   the week three days late; since v0.7 one whose calf hurts after one quality session in seven.

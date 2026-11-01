@@ -741,7 +741,7 @@ def check(course: Course) -> list[str]:
     # the whole plan, like one who skips sessions. Nor does one whose calf
     # takes sessions out - and after each pain the light reads the lower load
     # as ACWR < 0.8 and keeps the days easy until the ratio recovers, which
-    # `docs/roadmap.md` "Smaller" names.)
+    # `docs/roadmap.md` item 15 names.)
     if p.effort == "as_planned" and p.compliance == 1.0 and p.zone_detail and not p.applies_late \
             and not p.pain_after_hard:
         for r in days[14:]:

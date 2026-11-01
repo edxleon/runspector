@@ -498,12 +498,15 @@ calendar entry. One athlete, one account, one watch.
 
 ### Roadmap
 
-[docs/roadmap.md](docs/roadmap.md) is the backlog, ordered by what it would do for the runner. What is
-left: sessions with your own structure, the proposed session matched against the run that followed,
-where each statement on a card comes from, how a run felt, session sizes from your own time per
-weekday, deeper history, and race preparation towards a goal race. v0.3 made the planner read the
-history for what comes next, v0.6 brought every small item and v0.7 the athlete's own check-in; the
-reasoning and the order are there.
+[docs/roadmap.md](docs/roadmap.md) is the backlog, ordered by what it would do for the runner. First
+on it: a readiness light that does not rest a day on one weak signal, the proposed session matched
+against the run that followed - with the same reps compared across weeks -, a week on the watch
+without Claude, and sessions with your own structure. After them: session sizes from your own time
+per weekday, how a run felt, the week's load before you say yes, where each statement on a card
+comes from, the kind of a strength day, moving a session, a fitness trend beside VO2max, deeper
+history, a one-file install for Claude Desktop, and race preparation towards a goal race. v0.3 made
+the planner read the history for what comes next, v0.6 brought every small item and v0.7 (on `main`,
+not yet released) the athlete's own check-in; the reasoning and the order are there.
 
 ## License
 
