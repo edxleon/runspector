@@ -152,3 +152,17 @@
           white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface2);
           border-radius: var(--r-sm, 6px); padding: 8px; }
 .ev-given { margin-top: 8px; }
+/* A conversation on a card (roadmap 25): the athlete's question above an
+   answer, the next steps, what was kept, and the question field under it all. */
+.card-question { display: block; font-size: 13px; font-weight: 600; color: var(--text);
+                 margin-bottom: 2px; }
+.card-next { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.card-next-k, .card-told-k { font-size: 11px; font-weight: 600; color: var(--muted);
+                             text-transform: uppercase; letter-spacing: .05em; }
+.card-next-one { display: inline-flex; align-items: center; gap: 6px; }
+.card-told { display: grid; gap: 4px; font-size: 13px; }
+.card-told-one.told-gone { color: var(--muted); text-decoration: line-through; }
+.card-thread-ask { margin: 0 14px 14px; }
+.card-told-wrap { padding: 0 14px 10px; }
+.told-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.told-text { font-size: 14px; }

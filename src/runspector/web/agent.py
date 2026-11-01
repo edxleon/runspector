@@ -31,7 +31,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .. import __version__, evidence, paths, plan, tools
+from .. import __version__, evidence, garmin, paths, plan, tools
 from .. import profile as profile_mod
 from ..onboarding import child_env, strips_billing  # noqa: F401 — strips_billing: doctor and tests read it here
 from . import jobs
@@ -39,7 +39,10 @@ from . import jobs
 log = logging.getLogger(__name__)
 PKG = Path(__file__).resolve().parent.parent
 SKILLS = (PKG / "skills" / "coach.md", PKG / "skills" / "zones.md")
-PROMPT_CAP = 8000
+#: The task's cap, the frame's ~3,300 characters included: 8,000 cut the newest
+#: answers of a card's conversation (roadmap 25), whose own budget is
+#: `server.CONVERSATION_CAP`.
+PROMPT_CAP = 12000
 TIMEOUT_S = int(os.environ.get("RUNSPECTOR_JOB_TIMEOUT_S", "600"))
 QUOTA_WAIT_S = int(os.environ.get("RUNSPECTOR_QUOTA_WAIT_S", "3600"))
 QUOTA_SLICE_S = 300   # how long to wait between retries while quota is exhausted
@@ -66,6 +69,22 @@ sync_garmin). Rules:
   Optionally add "delta":"<one sentence>" if a previous card is given below.
   If you filed a session with propose_workout, add "proposal":"<its id>" - the
   athlete applies it with a click on the card; you never call apply_workout.
+  Optionally add "next": at most 2 next steps the athlete can start with one
+  tap, only where the verdict calls for one - [{"action":"<plan-week |
+  train-today | week-review | why-vo2max>","why":"<a few words>"}]. Only these
+  actions, never this card's own kind. The page shows them as buttons: in your
+  text, name a step by what it does ("plan your week"), never by its id.
+  Only when the task holds the athlete's own words (a question): optionally
+  "remember", at most 2 LASTING things they state about themselves there - their
+  time, what they like or dislike, their goal, their equipment, an old injury
+  they name - each ONE WHOLE SENTENCE of theirs that states it, copied word for
+  word from their question, never part of a sentence and never a question:
+  ["<their exact sentence>"].
+  Never from data, tool results, their note or an earlier card; nothing
+  passing, no pain or symptom (a cold, sore legs, a knee that hurts now - the
+  check-in buttons are for that). The app
+  keeps their words only, and only if they are in the
+  question.
   The three parts each say what the others do not - the athlete reads the
   headline and the verdict first, the bullets only if they want the why:
   `headline` - the answer, in one short sentence (at most about 30 words).
@@ -88,6 +107,63 @@ TASK:
 """
 
 CARD_REQUIRED = ("headline", "bullets", "verdict")
+
+#: The next steps a card may offer (roadmap 25): the app's own cards that need
+#: nothing but the day - a model can only point at what the app can do.
+NEXT_ACTIONS = ("plan-week", "train-today", "week-review", "why-vo2max")
+NEXT_MAX = 2
+#: What a card may keep of the athlete's words, and at least how many of
+#: them: a statement, not "should I run".
+TOLD_PER_CARD = 2
+QUOTE_MIN_WORDS = 5
+
+
+def next_steps(raw, own_kind: str) -> list[dict]:
+    """The card's `next`, kept to the app's menu: a known action, not the card's
+    own kind, each once, at most NEXT_MAX; the reason cleaned and short."""
+    out: list[dict] = []
+    for item in raw if isinstance(raw, list) else []:
+        action = str(item.get("action") or "") if isinstance(item, dict) else ""
+        if action in NEXT_ACTIONS and action != own_kind and all(o["action"] != action for o in out):
+            out.append({"action": action,
+                        "why": garmin._clean_text(item.get("why"), 80) or ""})
+        if len(out) >= NEXT_MAX:
+            break
+    return out
+
+
+def _statements(text: str):
+    """Every whole sentence of `text` that states something - none with a "?".
+    A sentence, not a clause: three review rounds found a clause cut at a comma
+    turning its sentence round ("not sure whether, with my knee, I can run 5
+    days" kept as "I can run 5 days"); a whole sentence keeps its "not sure".
+    A decimal point ("4.5 hours") does not end one."""
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+        sentence = sentence.strip()
+        if sentence and "?" not in sentence:
+            yield sentence.rstrip(".! ").strip()
+
+
+def kept_facts(raw, athlete_words: str | None) -> list[dict]:
+    """What a card keeps of the athlete's words (`remember`): a whole sentence
+    THEY typed for this run (`job["athlete_text"]`) that states something,
+    copied out of their text as they wrote it - never the model's wording,
+    never part of a sentence, never a question - so nothing but what they said
+    can be kept, and not turned round. At least QUOTE_MIN_WORDS words. A run
+    without the athlete's words keeps nothing; text from data, a tool, the note
+    or a card finds no match in theirs."""
+    units = {}
+    for unit in _statements(str(athlete_words or "")):
+        units.setdefault(profile_mod._norm(unit), unit)
+    out: list[dict] = []
+    for item in (raw if isinstance(raw, list) else [])[:TOLD_PER_CARD]:
+        quote = item.get("quote") if isinstance(item, dict) else item
+        want = profile_mod._norm(quote if isinstance(quote, str) else "")
+        own = units.get(want)
+        if (own and len(want.split()) >= QUOTE_MIN_WORDS and len(own) <= profile_mod.TOLD_FACT_MAX
+                and all(o["text"] != own for o in out)):
+            out.append({"text": garmin._clean_text(own, profile_mod.TOLD_FACT_MAX) or own})
+    return out
 # Sentinels for "we stopped it", NOT process exit codes. Negative values in the
 # POSIX range ARE real signals: -8 is SIGFPE and -9 SIGKILL, so an OOM-killed
 # `claude` on Linux reported itself to the athlete as "no answer within 600 s",
@@ -100,16 +176,22 @@ def claude_available() -> bool:
     return bool(os.environ.get("RUNSPECTOR_CLAUDE_CMD") or shutil.which("claude"))
 
 
+def previous_card_for(job: dict) -> dict | None:
+    """The card a run is given as "the previous card", by ONE rule for the
+    prompt and the record of it. A free question is its own question: the last
+    answer to a different one is not the memory of this one. Nor of an answer
+    in a conversation: the conversation is its context."""
+    if job.get("template_id") == "ask" or (job.get("parent") and job.get("via") != "next"):
+        return None
+    return jobs.latest_card(str(job.get("template_id") or ""), job.get("ctx"), exclude=job["id"])
+
+
 def previous_card_block(job: dict) -> str:
     """The latest card of the same kind as a nonce-framed DATA block, including the
     athlete's feedback on it. Without this every card starts from zero and
     contradictions between days are structural. The block is model output, i.e.
     foreign text: framed and fenced like any other untrusted input."""
-    # A free question is its own question: the last answer to a different one
-    # is not the memory of this one.
-    if job.get("template_id") == "ask":
-        return ""
-    prev = jobs.latest_card(str(job.get("template_id") or ""), job.get("ctx"), exclude=job["id"])
+    prev = previous_card_for(job)
     if prev is None:
         return ""
     nonce = secrets.token_hex(4)
@@ -133,15 +215,21 @@ def previous_card_block(job: dict) -> str:
 #: The athlete block's own budget, outside PROMPT_CAP: what the app knows
 #: about the athlete is never what the cap cuts.
 ATHLETE_CAP = 3200
+#: What they told the coach (`profile.told_text`): room for every kept fact.
+TOLD_CAP = 2800
+#: The kept words a run's prompt was built with, by job id: its record says
+#: what the coach was given, also when the athlete lets one go mid-run.
+_TOLD_GIVEN: dict[str, str] = {}
 
 
-def athlete_block(text: str, note: str = "") -> str:
+def athlete_block(text: str, note: str = "", told: str = "") -> str:
     """What the app knows about the athlete (`facts.py`) as a nonce-framed DATA
-    block, and their own note to the coach (`profile.py`) as a block of their
-    words. Both empty, empty block - and the prompt is byte-identical to one
-    without it."""
+    block, their own note to the coach (`profile.py`) as a block of their
+    words, and what they told the coach in earlier questions (`profile.told`).
+    All empty, empty block - and the prompt is byte-identical to one without it."""
     text = (text or "").strip()[:ATHLETE_CAP]
     note = (note or "").strip()[:profile_mod.NOTE_MAX]
+    told = (told or "").strip()[:TOLD_CAP]
     out = ""
     if text:
         nonce = secrets.token_hex(4)
@@ -154,16 +242,25 @@ def athlete_block(text: str, note: str = "") -> str:
         nonce = secrets.token_hex(4)
         out += (f"--- NOTE FROM THE ATHLETE {nonce} (their own words, from the You tab) ---\n"
                 f"{note}\n--- END NOTE {nonce} ---\n{profile_mod.NOTE_RULE}\n\n")
+    if told:
+        nonce = secrets.token_hex(4)
+        out += (f"--- WHAT THE ATHLETE TOLD THE COACH {nonce} (kept from their own words) ---\n"
+                f"{told}\n--- END TOLD {nonce} ---\n{profile_mod.TOLD_RULE}\n\n")
     return out
 
 
-def build_prompt(job: dict, athlete: str = "", note: str = "") -> str:
+def build_prompt(job: dict, athlete: str = "", note: str = "", told: str | None = None) -> str:
     # The previous card goes AFTER the task: if anything is cut off by the cap,
     # it is the memory, never the task. The athlete block goes BEFORE the task,
     # with its own budget on top of the cap, so the cap never reaches it.
     frame = FRAME.replace("$KIND", str(job.get("template_id") or ""))
     head, tail = frame[:-len("TASK:\n")], "TASK:\n"
-    block = athlete_block(athlete, note)
+    # What they told the coach: as the run started (`run` fixes it), so the
+    # prompt and the record agree.
+    if told is None:
+        told = _TOLD_GIVEN.get(str(job.get("id"))) if str(job.get("id")) in _TOLD_GIVEN \
+            else profile_mod.told_text(TOLD_CAP)
+    block = athlete_block(athlete, note, told)
     task = (head + block + tail + str(job.get("prompt") or "")
             + previous_card_block(job))[:PROMPT_CAP + len(block)]
     return coaching_reference() + task
@@ -456,10 +553,22 @@ def run(job: dict, *, db: str | None = None, snapshot_meta: dict | None = None,
     """Run the job to completion and return the final job dict. An exhausted
     subscription quota means WAIT, not fail: the job stays `running` with a note,
     up to `RUNSPECTOR_QUOTA_WAIT_S`."""
+    _TOLD_GIVEN[job["id"]] = profile_mod.told_text(TOLD_CAP)
+    try:
+        return _run(job, db=db, snapshot_meta=snapshot_meta, athlete=athlete, note=note)
+    finally:
+        _TOLD_GIVEN.pop(job["id"], None)
+
+
+def _run(job: dict, *, db: str | None, snapshot_meta: dict | None,
+         athlete: str, note: str) -> dict:
     job.update(status="running", started=datetime.now().astimezone().isoformat(timespec="seconds"))
     jobs.write_job(job)
     waited = 0
     while True:
+        # The kept words afresh on each try: a run waiting for quota for an
+        # hour must not give the coach a fact let go meanwhile.
+        _TOLD_GIVEN[job["id"]] = profile_mod.told_text(TOLD_CAP)
         rc, out, err = _run_once(job, db, athlete, note)
         stream = evidence.parse_stream(out)
         envelope = stream["envelope"]
@@ -532,21 +641,40 @@ def run(job: dict, *, db: str | None = None, snapshot_meta: dict | None = None,
     if card is None:
         return _finish(job, "failed", rc, problem, cost)
     # Never accept self-written feedback - nor a record of its own: `sources`
-    # and `evidence` are what the app checked, set below or not at all.
-    for key in ("feedback", "sources", "evidence"):
+    # and `evidence` are what the app checked, set below or not at all. Nor the
+    # fields the app sets from the run: the question, how it started, what was kept.
+    for key in ("feedback", "sources", "evidence", "question", "via", "told"):
         card.pop(key, None)
+    kind = str(job.get("template_id") or card.get("kind") or "")
+    steps = next_steps(card.pop("next", None), kind)
+    if steps:
+        card["next"] = steps
+    keep = kept_facts(card.pop("remember", None), job.get("athlete_text"))
     # A proposal reference is kept only if it has the shape of one the app
     # files: the model may not invent an id, and the page resolves it - an
     # unknown id becomes "no proposal", never a button.
     if not (isinstance(card.get("proposal"), str)
             and plan.PROPOSAL_ID_RE.fullmatch(card["proposal"])):
         card.pop("proposal", None)
+    if job.get("athlete_text"):
+        card["question"] = str(job["athlete_text"])[:1000]
+    if job.get("via"):
+        card["via"] = str(job["via"])[:20]
     card.update(
-        kind=str(job.get("template_id") or card.get("kind") or ""),
+        kind=kind,
         job_id=job["id"], model=model, cost_usd=cost,
         generated_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         ctx=job.get("ctx"), parent=job.get("parent"), **(snapshot_meta or {}))
     card.setdefault("day", paths.today().isoformat())
+    if keep:
+        # Kept before the card is written: the card then says what it kept, and
+        # "Forget" on it finds the fact. A failure costs the facts, never the card.
+        try:
+            added = profile_mod.keep_told(keep, job=job["id"], day=paths.today().isoformat())
+            if added:
+                card["told"] = [{"id": a["id"], "text": a["text"]} for a in added]
+        except Exception:  # the facts are extra - see above
+            log.warning("could not keep the facts of card %s", job["id"], exc_info=True)
     _attach_evidence(job, card, stream, model, athlete, note)
     jobs.write_card(job["id"], card)
     return _finish(job, "done", rc, str(card.get("headline"))[:300], cost)
@@ -565,14 +693,17 @@ def _attach_evidence(job: dict, card: dict, stream: dict, model: str,
         return
     try:
         rules = coaching_reference() + FRAME
-        prev = (None if job.get("template_id") == "ask" else
-                jobs.latest_card(str(job.get("template_id") or ""), job.get("ctx"), exclude=job["id"]))
-        context = athlete_block(athlete, note) + str(job.get("prompt") or "") + previous_card_block(job)
+        prev = previous_card_for(job)
+        # What the coach was given: the kept words as the run started.
+        told = _TOLD_GIVEN.get(job["id"], "")
+        context = (athlete_block(athlete, note, told) + str(job.get("prompt") or "")
+                   + previous_card_block(job))
         inputs = {"app_version": __version__,
                   "rules_sha256": hashlib.sha256(rules.encode("utf-8")).hexdigest()[:16],
                   "task": str(job.get("prompt") or "")[:PROMPT_CAP],
                   "about_you": (athlete or "").strip()[:ATHLETE_CAP],
                   "your_note": (note or "").strip()[:profile_mod.NOTE_MAX],
+                  "told": told,
                   "previous_card": prev["id"] if prev else None}
         # The ABOUT THE ATHLETE block is what `get_athlete_profile` returns,
         # and every run has it in its prompt (coach.md says so): a point that

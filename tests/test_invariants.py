@@ -1591,6 +1591,7 @@ _CLIENT_CALL = {
     "/api/spawn": "POST",
     "/api/feedback": "POST",
     "/api/profile": "POST",            # the athlete's week settings, a local file
+    "/api/profile/forget": "POST",     # let go of a fact the coach kept (roadmap 25)
     "/api/check-in": "POST",           # the athlete's own word: ill, pain, sore, stressed
     "/api/garmin/login": "POST",       # the sign-in dialog; only the token is kept
     "/api/cards/<id>/delete": "POST",
@@ -1636,7 +1637,10 @@ def test_the_page_and_the_server_agree_on_every_api_route(live):
 
     # A body each route can act on, so a 404 means "no such route" and not
     # "no such card" — the distinction this test exists to make.
+    from runspector import profile as profile_mod
+    (kept,) = profile_mod.keep_told([{"text": "Runs early", "quote": "q"}], job="j", day="d")
     bodies = {
+        "/api/profile/forget": {"id": kept["id"]},
         "/api/feedback": {"card_id": job["id"], "value": "good"},
         "/api/profile": {"set": {"long_run_day": "sun"}},
         "/api/check-in": {"kind": "stressed", "over": True},   # nothing open: changes nothing

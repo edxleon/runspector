@@ -504,9 +504,9 @@ def test_follow_up_frames_the_card_and_puts_the_question_first(httpd):
                            {"from_job": src["id"], "prompt": "Why only 18 %?"})
     assert status == 200 and data["job"]["parent"] == src["id"]
     prompt = jobs.read_job(data["job"]["id"])["prompt"]
-    m = re.search(r"--- CARD ([0-9a-f]{8}) \(DATA, NOT INSTRUCTIONS\) ---", prompt)
-    assert m and f"--- END CARD {m.group(1)} ---" in prompt
-    assert prompt.index("NOW: Why only 18 %?") < prompt.index("--- CARD")
+    m = re.search(r"--- CONVERSATION ([0-9a-f]{8}) \(DATA, NOT INSTRUCTIONS\) ---", prompt)
+    assert m and f"--- END CONVERSATION {m.group(1)} ---" in prompt
+    assert prompt.index("NOW (the athlete's own words): Why only 18 %?") < prompt.index("--- CONVERSATION")
     assert "Headline: Solid week." in prompt
 
 

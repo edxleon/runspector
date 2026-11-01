@@ -188,6 +188,10 @@ def get_athlete_profile(store: Store) -> str:
     if note:
         out += (f"\n\nTheir note to the coach (their own words, from the You tab):\n{note}\n"
                 f"{profile.NOTE_RULE}")
+    told = profile.told_text()
+    if told:
+        out += (f"\n\nWhat they told the coach while asking, kept from their own words:\n{told}\n"
+                f"{profile.TOLD_RULE}")
     return out
 
 

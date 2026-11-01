@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 
 from . import paths
 
@@ -35,6 +36,24 @@ NOTE_RULE = ("The athlete wrote this for their coach: take it into account - the
              "do. It does not change today's decision, the spacing or the load rules, and it never "
              "stands in for their yes before anything goes on the watch.")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+#: What the athlete told the coach while asking on a card, kept for later
+#: (roadmap 25): their OWN words, as they typed them - the app copies them out
+#: of their question (`web/agent.py: kept_facts`), never a model's wording of
+#: them - with the day and the card. Written only by a card run; never through
+#: the settings route (`validate` refuses the key). The You tab lets each go.
+#: TOLD_MAX x TOLD_FACT_MAX fits the coach's budget for them
+#: (`web/agent.py: TOLD_CAP`): every fact the You tab lists reaches the coach.
+TOLD_KEY = "told"
+TOLD_MAX = 12
+TOLD_FACT_MAX = 200
+TOLD_RULE = ("These are the athlete's own words from earlier questions, kept by the app: take them "
+             "into account like their note, and say so when you do. They do not change today's "
+             "decision, the spacing or the load rules, and they never stand in for their yes before "
+             "anything goes on the watch.")
+#: One writer at a time: the worker keeps facts while the page saves the week,
+#: the note or a Forget - each reads, changes and writes the whole file.
+_LOCK = threading.RLock()
+_ID_RE = re.compile(r"[0-9a-f]{8}")
 
 
 def load() -> dict:
@@ -112,6 +131,80 @@ def write(data: dict) -> None:
 
 def save(patch: dict) -> dict:
     """Validate and write. Returns the new profile."""
-    new = validate(patch, load())
-    write(new)
-    return new
+    with _LOCK:
+        new = validate(patch, load())
+        write(new)
+        return new
+
+
+def _norm(text: str) -> str:
+    return " ".join(re.findall(r"\w+", str(text or "").lower()))
+
+
+def told(data: dict | None = None) -> list[dict]:
+    """The kept facts, oldest first; anything that is not one is skipped."""
+    raw = (load() if data is None else data).get(TOLD_KEY)
+    return [e for e in raw if isinstance(e, dict) and isinstance(e.get("id"), str)
+            and _ID_RE.fullmatch(e["id"]) and isinstance(e.get("text"), str)] \
+        if isinstance(raw, list) else []
+
+
+def keep_told(items: list[dict], *, job: str, day: str) -> list[dict]:
+    """Add what a card run kept (`text`: the athlete's words); the same words
+    are not added twice. The newest TOLD_MAX stay. Returns the added ones."""
+    import secrets
+
+    with _LOCK:
+        data = load()
+        current = told(data)
+        have = {_norm(e["text"]) for e in current}
+        added = []
+        for item in items:
+            text = str(item.get("text") or "").strip()[:TOLD_FACT_MAX]
+            if not text or _norm(text) in have:
+                continue
+            have.add(_norm(text))
+            added.append({"id": secrets.token_hex(4), "text": text, "day": day, "job": job})
+        if added:
+            data[TOLD_KEY] = (current + added)[-TOLD_MAX:]
+            write(data)
+        return added
+
+
+def forget_told(entry_id: str) -> dict | None:
+    """Let one kept fact go; returns it (the caller scrubs it from the card
+    and the records), None when there is no such fact."""
+    if not isinstance(entry_id, str) or not _ID_RE.fullmatch(entry_id):
+        return None
+    with _LOCK:
+        data = load()
+        current = told(data)
+        gone = next((e for e in current if e["id"] == entry_id), None)
+        if gone is None:
+            return None
+        rest = [e for e in current if e["id"] != entry_id]
+        if rest:
+            data[TOLD_KEY] = rest
+        else:
+            data.pop(TOLD_KEY, None)
+        write(data)
+        return gone
+
+
+def told_line(entry: dict) -> str:
+    """One kept fact as the coach reads it - and as a record lists it, so a
+    Forget finds exactly that line (`web/jobs.scrub_told`)."""
+    return f'- "{entry.get("text")}" (said {entry.get("day") or "?"})'
+
+
+def told_text(cap: int = 2800) -> str:
+    """The kept words as lines for the coach, newest first within `cap` (which
+    TOLD_MAX x TOLD_FACT_MAX fits - `tests/test_conversation.py` pins it)."""
+    lines, used = [], 0
+    for e in reversed(told()):
+        line = told_line(e)
+        if used + len(line) + 1 > cap:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    return "\n".join(lines)

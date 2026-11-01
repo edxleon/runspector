@@ -441,6 +441,8 @@ def week_settings(store: Store, today: date) -> dict:
         "set": {k: v for k, v in saved.items() if k in profile_mod.WEEK_KEYS},
         "note": saved.get(profile_mod.NOTE_KEY) or "",
         "note_max": profile_mod.NOTE_MAX,
+        # What they told the coach and it kept (roadmap 25), oldest first.
+        "told": [{k: e.get(k) for k in ("id", "text", "day")} for e in profile_mod.told(saved)],
         "effective": {k: {"value": e.value, "source": e.source}
                       for k, e in habits.effective(saved, h).items()},
         "history": {

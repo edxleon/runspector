@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1349 tests, 121 frontend tests and that gate on three operating systems and two Python versions, with every
+1394 tests, 128 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -261,6 +261,9 @@ and only when you start a card or ask in Claude Code. It never sees your Garmin 
 session token or any raw file. It reaches Claude through your own account, under your plan's terms.
 And you can see it too: under every card, *How this card was made* lists everything the coach looked
 at and checks each number on the card against it; the You tab lists what chats in Claude read.
+What you mention about yourself while asking on a card - your time on weekdays, an old injury - the
+coach keeps for later, only from your own words and never without saying so; the You tab lists each
+fact and lets it go.
 
 ### Can it mess up my watch or my calendar?
 
@@ -294,7 +297,9 @@ Delete `~/.runspector` (the app's footer shows the folder) and run
 | **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today and, on a hard day, *which* hard session (VO2max intervals, threshold reps, or the steady block Garmin measures VO2max from), Garmin's own Training Readiness beside it on watches that have one (its opinion - the call is the app's), four buttons for what the watch cannot see - ill, pain, sore legs, stressed - that change the call (ill or pain rest the day, and as many easy days follow as it lasted), your VO2max with the days since it last really changed, this week planned vs. done, last night's sleep, your zone bounds with their origin. Coming back to the page after a while syncs first |
 | **Runs** | Every run with its intensity band, real interval structure (`5×4′`, not "5 minutes"), zones, weather, performance condition — and an *Analyze this run* button |
 | **Trend** | VO2max as honest steps (and whether a measurement is due) with your body weight beside it - VO2max is per kilogram, so the page says how much of a change the weight alone explains -, lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR and monotony (how alike the last seven days were - an even, heavy week holds the next one), and Garmin's own load focus (its 4-week load per band against its target range) as a second opinion |
-| **Coach** | Ask the coach anything in your own words (*what am I doing wrong?*) - a short card, the biggest lever first. One-tap analyses by Claude as short cards that remember the previous card of their kind, accept your 👍/👎, take follow-up questions and can be deleted. Two start here (*Why is VO2max moving? · Review my week*); the other two start where their subject is — *Should I train today?* on the Today tab, *Analyze this run* on a run |
+| **Coach** | Ask the coach anything in your own words (*what am I doing wrong?*) - a short card, the biggest lever first. One-tap analyses by Claude as short cards that remember the previous card of their kind, accept your 👍/👎 and can be deleted. A card is a conversation: ask on under it, and every answer is
+written with the whole thread; it may offer a next step (*Plan my week*) as a button that starts with
+that conversation; and what you say about yourself there is kept for the coach, from your own words only. Two start here (*Why is VO2max moving? · Review my week*); the other two start where their subject is — *Should I train today?* on the Today tab, *Analyze this run* on a run |
 | **You** | **Your week**, the foundation the planner goes by: runs per week, your days, long run, days you can't run, another sport - read from your history and kept up to date, and yours to change: what you set wins until you hand it back. **For your coach**: a note in your own words ("gym Mon, Wed, Fri", "less time until December") the coach reads before every answer. And what the coach has learned about you, each with its evidence: how consistent you are, your intensity pattern, the VO2max trend, Garmin's load focus, resting-HR baseline and zones - and since when, where something changed. Every card and the MCP tool `get_athlete_profile` read all three |
 
 ## How it works

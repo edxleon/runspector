@@ -1830,7 +1830,8 @@ const app = mountApp({
   onRefresh: syncAndLoad,
 });
 // Follow-up questions on a card start a job: pull the state, start the poller.
-setCardContext({ onJobStart: async () => { await refresh().catch(() => {}); poller.start(); } });
+setCardContext({ onJobStart: async () => { await refresh().catch(() => {}); poller.start(); },
+                 onChanged: () => refresh().catch(() => {}) });
 const showView = app.showView;
 const reload = app.reload;
 const refresh = app.fetchState;

@@ -126,7 +126,9 @@ export function classify409(err) {
  *  today. `today` is an ISO day (local!), compared against `day`. */
 export function todayCard(cards, today, kind = "train-today", saidAt = null) {
   const k = (cards || [])
-    .filter(c => c && c.kind === kind && !c.parent)
+    // An answer in a conversation is not the day's card - unless it was started
+    // as a next step: "Should I train today?" from a card is that day's card.
+    .filter(c => c && c.kind === kind && (!c.parent || c.via === "next"))
     .sort((a, b) => String(b.day || "").localeCompare(String(a.day || ""))
                || String(b.generated_at || b.written || "")
                     .localeCompare(String(a.generated_at || a.written || "")));
@@ -270,7 +272,7 @@ export function renderEvidence(rec, det = () => "") {
     : `<div class="note">It looked at nothing.</div>`;
   const inp = rec.inputs || {};
   const given = [["What the app knows about you", inp.about_you], ["Your note", inp.your_note],
-                 ["The task", inp.task]].filter(([, v]) => v)
+                 ["What you told the coach", inp.told], ["The task", inp.task]].filter(([, v]) => v)
     .map(([k, v]) => `<div class="ev-given"><div class="ev-label">${esc(k)}</div>
        <pre class="ev-pre mono">${esc(v)}</pre></div>`).join("");
   const givenBox = given ? `<details class="card-more" ${det("evgiven")}><summary>What the coach
@@ -361,7 +363,7 @@ function keyOf(el) { return el.dataset.cardsKey || el.id || "_"; }
 export function renderCard(c, opts = {}) {
   const id = cardId(c);
   const open = opts.open ?? openCards.has(id);
-  const title = (opts.kindTitle || {})[c.kind] || opts.defaultTitle || "Analysis";
+  const title = opts.forceTitle || (opts.kindTitle || {})[c.kind] || opts.defaultTitle || "Analysis";
   const children = opts.children || [];
   const meta = metaParts(c);
   const p = followUps.get(id);
@@ -378,8 +380,11 @@ export function renderCard(c, opts = {}) {
     const k = `${id}|${name}`;
     return `data-det="${esc(k)}"${openDetails.has(k) ? " open" : ""}`;
   };
+  // An answer in a conversation says what it answers - the athlete's own question.
+  const asked = c.question
+    ? `<span class="card-question">You asked: ${esc(truncate(textPlain(c.question), 300))}</span>` : "";
   const head = `<button type="button" class="card-head" data-card="${esc(id)}" aria-expanded="${open}">
-      <span class="card-meta">${esc(title)}${refTxt ? " · " + esc(refTxt) : ""}${
+      ${asked}<span class="card-meta">${esc(title)}${refTxt ? " · " + esc(refTxt) : ""}${
         meta[0] ? " · " + esc(meta[0]) : ""}</span>
       <h3>${esc(textPlain(c.headline) || "(no headline)")}</h3>
       ${c.verdict ? `<span class="card-verdict">${esc(textPlain(c.verdict))}</span>` : ""}
@@ -435,25 +440,33 @@ export function renderCard(c, opts = {}) {
       : "";
     const proposal = renderProposal(c.proposal, opts);
     const fb = opts.feedback !== false ? renderFeedback(id, c.feedback) : "";
-    const pending = followUps.get(id);
-    const fu = opts.followUp !== false ? renderFollowUp(id, pending) : "";
     const value = c.feedback?.value;
-    const respond = (fb || fu)
-      ? `<details class="card-more card-respond" ${det("respond")}${pending || value ? " open" : ""}>
-           <summary>Feedback or a follow-up question${value ? (value === "good" ? " · 👍" : " · 👎") : ""}${
-             pending ? " · answer on its way" : ""}</summary>${fb}${fu}</details>` : "";
+    const respond = fb
+      ? `<details class="card-more card-respond" ${det("respond")}${value ? " open" : ""}>
+           <summary>Feedback${value ? (value === "good" ? " · 👍" : " · 👎") : ""}</summary>${fb}</details>` : "";
     body = `<div class="card-body">${content || `<div class="empty-note">No content.</div>`}${
-      proposal}${evidence}${metaLine}${respond}</div>`;
+      proposal}${renderNext(id, c.next, c.parent || id)}${evidence}${metaLine}${respond}</div>`;
   }
+  // The conversation's question field stands under the whole thread - the
+  // card and every answer in it (roadmap 25) - not in the feedback, and only
+  // on the card the thread hangs on.
+  const pending = followUps.get(id);
+  // A card shown on its own - also an answer whose card is gone - holds the field.
+  const ask = opts.followUp !== false && (open || children.length)
+    ? renderFollowUp(id, pending, children.length) : "";
   // Answers hang visibly BELOW the parent card — even when it is collapsed,
   // otherwise nobody would see that a follow-up question has been answered.
   const childrenHtml = children.length
     ? `<div class="card-children">${children.map(k =>
-        renderCard(k, { ...opts, children: [], defaultTitle: "Answer",
-                        noRef: true, open: undefined })).join("")}</div>`
+        renderCard(k, { ...opts, children: [], forceTitle: k.via === "next" ? undefined : "Answer",
+                        noRef: true, open: undefined, followUp: false })).join("")}</div>`
     : "";
+  // What the card kept stands outside the head and its fold: never kept
+  // without being seen, open or closed (roadmap 25).
+  const told = renderTold(c.told);
   return `<article class="coach-card${c.parent ? " card-child" : ""}"
-             data-card-id="${esc(id)}">${head}${body}${childrenHtml}</article>`;
+             data-card-id="${esc(id)}">${head}${told ? `<div class="card-told-wrap">${told}</div>` : ""}${
+             body}${childrenHtml}${ask}</article>`;
 }
 
 /** The session the coach filed, and the ONE button that writes to Garmin.
@@ -583,15 +596,44 @@ function renderFeedback(id, fb) {
   </div>`;
 }
 
-function renderFollowUp(id, pending) {
-  return `<div class="card-followup" data-fu-card="${esc(id)}">
-    ${pending ? `<div class="note card-followup-pending">The answer arrives as a card${
-       pending.job_id ? ` (${esc(pending.job_id)})` : ""} —
-       the run is listed in the job strip.</div>` : ""}
+function renderFollowUp(id, pending, answers = 0) {
+  return `<div class="card-followup card-thread-ask" data-fu-card="${esc(id)}">
+    ${pending ? `<div class="note card-followup-pending">The answer arrives below${
+       pending.job_id ? ` (${esc(pending.job_id)})` : ""} - the run is listed in the job strip.</div>` : ""}
     <input type="text" class="fu-text" data-fu-text maxlength="1000"
-           placeholder="Ask a follow-up…" aria-label="Follow-up question on this card">
-    <button type="button" class="fu-send" data-fu-send>Send</button>
+           placeholder="${answers ? "Ask on…" : "Ask about this card…"}" aria-label="A question about this card">
+    <button type="button" class="fu-send" data-fu-send>Ask</button>
   </div>`;
+}
+
+/** The app's cards a "next step" may start (`agent.NEXT_ACTIONS`), by their
+ *  own titles: the button says what the app does, the coach only why. */
+export const NEXT_TITLE = {
+  "plan-week": "Plan my week", "train-today": "Should I train today?",
+  "week-review": "Review my training week", "why-vo2max": "Why is VO2max moving?",
+};
+
+/** The next steps a card offers - each a button that starts that card with
+ *  this conversation as its context (two taps: a run is not free). */
+export function renderNext(id, next, root = id) {
+  const steps = (Array.isArray(next) ? next : []).filter(n => n && NEXT_TITLE[n.action]).slice(0, 2);
+  if (!steps.length) return "";
+  return `<div class="card-next"><span class="card-next-k">Next step</span>${steps.map(n =>
+    `<span class="card-next-one"><button type="button" class="btn btn-quiet" data-next="${esc(n.action)}"
+       data-next-from="${esc(id)}" data-next-root="${esc(root)}"
+       data-arm-label="Start? Tap again">→ ${esc(NEXT_TITLE[n.action])}</button>${
+       n.why ? `<span class="note">${esc(n.why)}</span>` : ""}</span>`).join("")}</div>`;
+}
+
+/** What the card kept of the athlete's own words - as the server keeps them
+ *  now (a fact let go is no longer listed) - with a way to let each go. */
+export function renderTold(told) {
+  const items = (Array.isArray(told) ? told : []).filter(t => t && t.id && t.text);
+  if (!items.length) return "";
+  return `<div class="card-told">${items.map(t =>
+    `<div class="card-told-one"><span class="card-told-k">Noted for later</span> "${esc(t.text)}"
+      <button type="button" class="linkish" data-forget="${esc(t.id)}"
+        data-arm-label="Forget? Tap again">Forget</button></div>`).join("")}</div>`;
 }
 
 /* ── Card list ───────────────────────────────────────────────────────────── */
@@ -739,6 +781,17 @@ function install() {
     }
     const fus = ev.target.closest("[data-fu-send]");
     if (fus) { sendFollowUp(fus.closest("[data-fu-card]")); return; }
+    const nx = ev.target.closest("[data-next]");
+    if (nx) {
+      armOrFire(nx, "next:" + nx.dataset.nextFrom + nx.dataset.next,
+                () => startNext(nx.dataset.nextFrom, nx.dataset.next, nx, nx.dataset.nextRoot));
+      return;
+    }
+    const fg = ev.target.closest("[data-forget]");
+    if (fg) {
+      armOrFire(fg, "forget:" + fg.dataset.forget, () => forgetTold(fg.dataset.forget, fg));
+      return;
+    }
     const apply = ev.target.closest("[data-apply]");
     if (apply) {
       // Two taps: this is the write to the athlete's Garmin account.
@@ -829,6 +882,39 @@ async function sendFeedback(wrap, value) {
   rerender(fresh || wrap);
 }
 
+async function startNext(fromCard, action, btn, root = fromCard) {
+  btn.disabled = true;
+  try {
+    const r = await apiPost("/api/spawn", { template_id: action, from_card: fromCard });
+    // Pending on the conversation's card: that is where its field says so.
+    followUps.set(root, { job_id: String(r?.job?.id || ""), ts: Date.now() });
+    toast(`${NEXT_TITLE[action] || "The next step"} is running - it arrives in this conversation.`,
+          { ms: 6000 });
+    const cont = rerender(btn);
+    (optsOf(cont || btn).onJobStart || context.onJobStart)?.(r);
+  } catch (e) {
+    btn.disabled = false;
+    if (e.message === "403") return;
+    if (e.status === 409 && handle409(e)) return;
+    toast("Not started: " + (e.data?.error || e.message || "server gone"), { warn: true, ms: 6000 });
+  }
+}
+
+/** Let a kept fact go - on a card or on the You tab; the page then pulls the
+ *  state again, so both places say so. */
+export async function forgetTold(entryId, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    await apiPost("/api/profile/forget", { id: entryId });
+    toast("Let go - the coach no longer reads it.");
+    await context.onChanged?.();
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    if (e.message === "403") return;
+    toast("Could not let it go: " + (e.data?.error || e.message || "server gone"), { warn: true });
+  }
+}
+
 async function sendFollowUp(wrap) {
   if (!wrap || wrap.dataset.sending) return;
   const id = wrap.dataset.fuCard;
@@ -843,7 +929,7 @@ async function sendFollowUp(wrap) {
     const fromJob = String(findCard(wrap, id)?.job_id || id);
     const r = await apiPost("/api/spawn", { from_job: fromJob, prompt });
     followUps.set(id, { job_id: String(r?.job?.id || ""), ts: Date.now() });
-    toast("Follow-up is running — the answer arrives as a card below this one.", { ms: 6000 });
+    toast("Your question is with the coach - the answer arrives below, in this conversation.", { ms: 6000 });
     const cont = rerender(wrap);
     (optsOf(cont || wrap).onJobStart || context.onJobStart)?.(r);
   } catch (e) {

@@ -18,6 +18,7 @@ a release note that cites one still points at the right section. The order is th
 |---|---|---|---|
 | 24 | Set up and started without a terminal: an app to double-click, the Garmin sign-in on the page, the coach without Claude Code | high (everyone who is not a developer never gets past the install) | high |
 | 15 | The light rests a day on one weak signal, and holds days easy for too little load | high (every morning) | small in code, medium in evals |
+| 25 | A card as a conversation: ask on until it is clear, a button for the next step, and what you tell the coach kept for later - *done for v0.9, not yet released* | high (every card) | medium |
 | 22 | What each run did against what it was meant to be - easy kept easy, hard made hard - and how that changes over the months - *the count by zones shipped in v0.8; the session's intent and the fading run open* | high (every run, the most common mistake) | medium to high |
 | 6 | The proposed session matched against the run that followed, and the same reps compared across weeks | high | medium |
 | 16 | A week planned and put on the watch without Claude | high (anyone without Claude Code) | small to medium |
@@ -466,6 +467,39 @@ computer (macOS first, then Windows); the Garmin sign-in on the page is already 
 without Claude Code where it can be done (16 plans and files a week without it; a card still
 needs Claude); and Claude Desktop's one-file install (21) for those who use the chat. Signing and
 notarising a launcher is the cost to weigh; a packaged app of its own is not the first step.
+
+## 25. A card as a conversation
+
+*Done for v0.9 (not yet released):* every question on a card or on an answer in it joins the card's
+conversation (`jobs.conversation_root`, one answer for the server, the card list and the cleanup, which
+keep and drop a conversation whole), and each answer is written with the card and the conversation
+before it - the newest answers first and whole, within their own budget (`server.CONVERSATION_CAP`), at
+most 12 answers. A card may offer two next steps from the app's menu (`agent.NEXT_ACTIONS`), each a
+button that starts that card with the conversation as its context, never twice at once. What the
+athlete says about themselves is kept as THEIR words only: a whole clause of a statement they typed,
+copied out of their text - never the model's wording, never part of a clause or a question - at least
+five words (`agent.kept_facts`); twelve at most, all of which reach the coach. The answer says "Noted
+for later" with Forget, the You tab lists each with its day, and Forget takes it off the card and out
+of the records of later runs. Still open: the same memory from a chat in Claude Code or Claude Desktop
+(a `remember` tool, behind the same guard).
+
+A card answers once. A follow-up question sees only the card it was asked on - not the earlier
+questions and answers - and a question on an answer is answered but shown nowhere, so in practice
+a card takes one follow-up. A runner who is not yet satisfied after one answer opens a new card and
+loses the context, or gives up. And what they say about themselves while asking ("I usually have 45
+minutes on weekdays") is gone with the answer.
+
+What it takes, in three parts. A thread per card: every question on the card or on an answer in it
+joins the same thread, each answer is written with the card and the whole thread before it, and the
+question field stands under the thread, not in the feedback. A next step as a button: the coach may
+offer at most two from the app's own menu (plan the week, should I train today, review the week, why
+VO2max moves), each a button that starts that card with the conversation as its context; nothing
+reaches the watch without the yes it always needs. And a memory of what the athlete said: the coach
+may note a lasting fact from the athlete's own words - their time, what they like, their goal, an old
+injury they mention - with the exact words it comes from, and the app keeps it only if those words are
+in what the athlete wrote, never from data or a tool's text. The answer says "Noted for later" with a
+way to undo it, the You tab lists each fact with its date and lets them go one by one, and the coach
+reads them before every answer like the athlete's note. Passing states stay with the check-in buttons.
 
 ## Smaller
 

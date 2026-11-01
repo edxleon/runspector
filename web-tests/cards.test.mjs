@@ -419,3 +419,61 @@ test("renderCard: what changed since the last card sits with the further points"
   assert.doesNotMatch(html, /<summary>Since the last card<\/summary>/);
   assert.match(html, /1 more point · what changed since the last card/);
 });
+
+/* ── A card as a conversation (roadmap 25) ─────────────────────────────── */
+
+import { renderNext, renderTold, NEXT_TITLE } from "../src/runspector/web/static/cards.js";
+
+test("a next step is a button with the app's own title, the coach's why beside it", () => {
+  const html = renderNext("j-1", [{ action: "plan-week", why: "for your <b>return</b> week" },
+                                  { action: "apply_workout", why: "x" }]);
+  assert.match(html, /data-next="plan-week"[^>]*data-next-from="j-1"/);
+  assert.match(html, />→ Plan my week</);
+  assert.match(html, /for your &lt;b&gt;return&lt;\/b&gt; week/);
+  assert.doesNotMatch(html, /apply_workout/, "a step off the menu is no button");
+  assert.equal(renderNext("j-1", null), "");
+  assert.deepEqual(Object.keys(NEXT_TITLE).sort(), ["plan-week", "train-today", "week-review", "why-vo2max"]);
+});
+
+test("what a card kept says so, in the athlete's words, with a way to let go", () => {
+  const html = renderTold([{ id: "deadbeef", text: "I have <45> minutes" }]);
+  assert.match(html, /Noted for later<\/span> "I have &lt;45&gt; minutes"/);
+  assert.match(html, /data-forget="deadbeef"/);
+  assert.equal(renderTold(null), "");
+});
+
+test("an answer whose card is gone still has a field to ask on", () => {
+  const loose = { id: "j-5", kind: "why-vo2max", parent: "j-gone", question: "q", headline: "h",
+                  verdict: "v", bullets: ["b"] };
+  assert.match(renderCard(loose, { open: true }), /data-fu-card="j-5"/);
+});
+
+test("a next step on an answer is pending on the conversation's card", () => {
+  assert.match(renderNext("j-2", [{ action: "plan-week" }], "j-1"), /data-next-from="j-2" data-next-root="j-1"/);
+});
+
+test("an answer shows the question; the question field stands under the thread", () => {
+  const root = { id: "j-1", kind: "why-vo2max", headline: "h", verdict: "v", bullets: ["a"] };
+  const reply = { id: "j-2", kind: "why-vo2max", parent: "j-1", question: "And the <weight>?",
+                  headline: "h2", verdict: "v2", bullets: ["b"] };
+  const html = renderCard(root, { open: true, children: [reply] });
+  assert.match(html, /class="card-question">You asked: And the &lt;weight&gt;\?/);
+  assert.equal((html.match(/data-fu-card=/g) || []).length, 1, "one field, for the whole thread");
+  assert.ok(html.indexOf("data-fu-card") > html.indexOf("You asked"), "under the answers");
+  assert.doesNotMatch(html, /<summary>Feedback or a follow-up question/);
+  assert.match(html, /placeholder="Ask on…"/);
+});
+
+test("Should I train today? started from a card is the day's card", () => {
+  const c = { id: "j-3", kind: "train-today", parent: "j-1", via: "next", day: "2026-11-01" };
+  assert.equal(todayCard([c], "2026-11-01")?.card.id, "j-3");
+  assert.equal(todayCard([{ ...c, via: null }], "2026-11-01"), null, "an answer in a thread is not");
+});
+
+test("the You tab lists what the coach kept, with the athlete's words and a way to let go", async () => {
+  const { toldCard } = await import("../src/runspector/web/static/you.js");
+  const html = toldCard({ told: [{ id: "deadbeef", text: "I run <early>", day: "2026-11-01" }] });
+  assert.match(html, /What you told the coach/);
+  assert.match(html, /"I run &lt;early&gt;".*you said it on 2026-11-01.*data-forget="deadbeef"/s);
+  assert.match(toldCard({ told: [] }), /Nothing yet/);
+});

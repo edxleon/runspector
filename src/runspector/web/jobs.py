@@ -11,6 +11,7 @@ read while the worker thread writes.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import secrets
@@ -81,14 +82,15 @@ _read_json = paths.read_json
 # ── Jobs ─────────────────────────────────────────────────────────────────────
 
 def new_job(prompt: str, *, title: str, kind: str, ctx: dict | None = None,
-            parent: str | None = None, athlete_text: str | None = None) -> dict:
+            parent: str | None = None, athlete_text: str | None = None,
+            via: str | None = None) -> dict:
     """`athlete_text` is what the ATHLETE wrote for this job (a question, a
     follow-up) and nothing else - the one text a card may later propose to
     remember from. The prompt mixes it with model text and cannot serve."""
     job = {
         "id": new_id(), "title": title[:80], "prompt": prompt,
         "template_id": kind, "ctx": ctx or None, "parent": parent, "from_job": parent,
-        "athlete_text": athlete_text,
+        "athlete_text": athlete_text, "via": via,
         "created": _now().isoformat(timespec="seconds"), "started": None, "finished": None,
         "status": "queued", "exit": None, "cost_usd": None, "result_summary": None, "note": None,
     }
@@ -225,13 +227,21 @@ def latest_card(kind: str, ctx: dict | None = None, exclude: str | None = None) 
 
 
 def cleanup_cards() -> None:
-    """Keep the newest CARDS_MAX — plus always the newest card of each kind: it is
-    the dedup anchor and the memory of the next run."""
+    """Keep the newest CARDS_MAX cards - plus always the newest card of each
+    kind: it is the dedup anchor and the memory of the next run - and keep or
+    drop a conversation WHOLE: dropping its card first left its answers loose,
+    without the card they answer (roadmap 25)."""
+    listed = list_cards()
+    roots = _roots(listed)
+    keep: set[str] = set()
     seen: set[tuple] = set()
-    for idx, (cid, c) in enumerate(list_cards()):
+    for idx, (cid, c) in enumerate(listed):
         first_of_kind = card_key(c) not in seen
         seen.add(card_key(c))
-        if idx >= CARDS_MAX and not first_of_kind:
+        if idx < CARDS_MAX or first_of_kind:
+            keep.add(roots[cid])
+    for cid, _ in listed:
+        if roots[cid] not in keep:
             card_path(cid).unlink(missing_ok=True)
             evidence_path(cid).unlink(missing_ok=True)
     # A record whose card never got written (or went another way) goes too.
@@ -249,12 +259,129 @@ def _cap(value, length: int) -> str:
     return s if len(s) <= length else s[:length - 1].rstrip() + "…"
 
 
+#: What `agent.NEXT_ACTIONS` allows - repeated here, since this module cannot
+#: import the agent; `tests/test_web.py` pins the two together.
+NEXT_ACTIONS = ("plan-week", "train-today", "week-review", "why-vo2max")
+
+
+def _public_next(raw) -> list[dict] | None:
+    out = [{"action": n["action"], "why": _cap(n.get("why"), 80)}
+           for n in (raw if isinstance(raw, list) else [])
+           if isinstance(n, dict) and n.get("action") in NEXT_ACTIONS][:2]
+    return out or None
+
+
+def _roots(listed: list[tuple[str, dict]]) -> dict[str, str]:
+    """Each card's conversation root: up its `parent` chain to a card without
+    one, or whose parent is no longer there (an older chain answer on answer)."""
+    by_id = dict(listed)
+    out: dict[str, str] = {}
+    for cid, _ in listed:
+        cur, seen = cid, set()
+        while cur not in seen and len(seen) < 50:
+            seen.add(cur)
+            up = by_id.get(cur, {}).get("parent")
+            if not isinstance(up, str) or up not in by_id:
+                break
+            cur = up
+        out[cid] = cur
+    return out
+
+
+def conversation_root(card_id: str) -> str:
+    """The card a conversation hangs on - the ONE answer the server, the card
+    list and the cleanup ask (`_roots`): by cards only, so a deleted card is
+    never climbed past through its job record."""
+    return _roots(list_cards()).get(card_id, card_id)
+
+
+def running_in(root: str) -> int:
+    """Answers on their way in a conversation: queued or running jobs on it."""
+    return sum(1 for j in read_jobs(100) if j.get("status") in ACTIVE and j.get("parent") == root)
+
+
+def scrub_told(entry: dict) -> None:
+    """A kept fact the athlete let go: off the card that kept it and out of the
+    records of what later runs were given. The conversation it came from stays
+    until its card is deleted - letting a fact go is not deleting a question."""
+    words = str(entry.get("text") or "")
+    card_id = str(entry.get("job") or "")
+    card = read_card(card_id)
+    if card and isinstance(card.get("told"), list):
+        card["told"] = [t for t in card["told"]
+                        if not (isinstance(t, dict) and t.get("id") == entry.get("id"))]
+        if not card["told"]:
+            card.pop("told")
+        write_card(card_id, card)
+    if not words:
+        return
+    from .. import evidence, profile
+    line_of = profile.told_line(entry)
+
+    def without(text):
+        if isinstance(text, str) and line_of in text.splitlines():
+            return "\n".join(line for line in text.splitlines() if line != line_of), True
+        return text, False
+
+    # Every stored text that held the line: what a card was given, and what a
+    # tool returned to a card or a chat (`get_athlete_profile` lists the words).
+    for p in paths.evidence_dir().glob("j-*.json"):
+        rec = _read_json(p)
+        if not isinstance(rec, dict):
+            continue
+        changed = False
+        if isinstance(rec.get("inputs"), dict):
+            rec["inputs"]["told"], c = without(rec["inputs"].get("told"))
+            changed |= c
+        for call in rec.get("calls") if isinstance(rec.get("calls"), list) else []:
+            if isinstance(call, dict):
+                call["result"], c = without(call.get("result"))
+                changed |= c
+        if changed:
+            _write_json(p, rec)
+    for p in evidence.chats_dir().glob("*.jsonl"):
+        try:
+            rows = p.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        out, changed = [], False
+        for raw in rows:
+            try:
+                row = json.loads(raw)
+            except ValueError:
+                out.append(raw)
+                continue
+            if isinstance(row, dict):
+                row["result"], c = without(row.get("result"))
+                changed |= c
+            out.append(json.dumps(row, ensure_ascii=False, default=str))
+        if changed:
+            p.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
 def public_cards(limit: int = 10) -> list[dict]:
     """Card content is model output: only the STRUCTURE is enforced and capped
     here; the frontend renders it escaped. A broken card file is skipped — it
     must not empty the list."""
     out = []
-    for cid, c in list_cards()[:limit]:
+    # The newest `limit` CONVERSATIONS, each whole (roadmap 25): ten cards cut a
+    # long conversation off its card, and left its answers without a field.
+    listed = list_cards()
+    roots = _roots(listed)
+    keep: list[str] = []
+    for cid, _ in listed:
+        if roots[cid] not in keep:
+            keep.append(roots[cid])
+    keep_set = set(keep[:limit])
+    # What each card kept, from where it is kept - a card's own field could be
+    # older than the guard that writes it now.
+    from .. import profile
+    kept: dict[str, list[dict]] = {}
+    for e in profile.told():
+        kept.setdefault(str(e.get("job") or ""), []).append({"id": e["id"], "text": _cap(e["text"], 200)})
+    for cid, c in listed:
+        if roots[cid] not in keep_set:
+            continue
         bullets = c.get("bullets") if isinstance(c.get("bullets"), list) else []
         fb = c.get("feedback") if isinstance(c.get("feedback"), dict) else None
         out.append({
@@ -286,6 +413,13 @@ def public_cards(limit: int = 10) -> list[dict]:
             "sources": ([_public_source(s) for s in c["sources"][:8]]
                         if isinstance(c.get("sources"), list) else None),
             "evidence": _public_evidence(c.get("evidence")),
+            # Roadmap 25: the athlete's question an answer is for, the next steps
+            # the card offers (checked against the app's menu again), the facts
+            # it kept, and whether it was started as a next step.
+            "question": _cap(c.get("question"), 1000) or None,
+            "next": _public_next(c.get("next")),
+            "told": kept.get(cid) or None,
+            "via": "next" if c.get("via") == "next" else None,
         })
     return out
 
