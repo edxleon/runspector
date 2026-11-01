@@ -82,7 +82,7 @@ def test_the_coach_sees_the_habit_and_how_it_changed(store, today):
     _store_runs(store, today, ["middle"] * 10 + ["easy", "easy", "hard"] * 4)
     f = _spread(store, today)["spread"]
     assert f.value.startswith("last 10: easy and hard kept apart")
-    assert "mostly in the middle - 10 in the middle" in f.change
+    assert "mostly moderate - 10 moderate" in f.change
 
 
 def test_too_few_judged_runs_say_so(store, today):
@@ -119,11 +119,11 @@ def test_a_rep_session_that_never_got_hard_counts_in_the_middle(store, today):
         laps.append(make_split(200, len(laps), "INTERVAL_RECOVERY", 120))
     store.upsert_activity_splits(200, laps)
     f = _spread(store, today)["spread"]
-    assert "1 in the middle" in f.value and "reps" not in _spread(store, today)
+    assert "1 moderate" in f.value and "reps" not in _spread(store, today)
 
 
 @pytest.mark.parametrize("block,says", [
-    (["middle"] * 6 + ["easy"] * 4, "mostly in the middle"),
+    (["middle"] * 6 + ["easy"] * 4, "mostly moderate"),
     (["easy"] * 6 + ["hard"] * 4, "easy and hard kept apart"),
     # the default week (2 hard of 4 runs) seen on any weekday: 50/50 and 40/60 by
     # count are still easy and hard apart - by TIME the hard part is a fifth
@@ -205,8 +205,8 @@ def test_the_first_block_never_shares_a_run_with_the_last(store, today):
 
 
 def test_half_is_not_mostly_and_counts_read_plainly():
-    assert facts._mostly(["middle"] * 3 + ["easy"] * 3) != "mostly in the middle"
-    assert facts._counts(["easy", "middle", "middle"]) == "1 easy, 2 in the middle"
+    assert facts._mostly(["middle"] * 3 + ["easy"] * 3) != "mostly moderate"
+    assert facts._counts(["easy", "middle", "middle"]) == "1 easy, 2 moderate"
 
 
 def test_not_judged_yet_says_why(store, today):
@@ -470,3 +470,68 @@ def test_a_change_of_zones_is_named_beside_the_change_it_makes(store, today):
 def test_the_same_zones_add_nothing_to_the_change_line(store, today):
     _store_runs(store, today, ["middle"] * 10 + ["easy"] * 10)
     assert "zone 4 from" not in _spread(store, today)["spread"].change
+
+
+# ── plain words and one reading for the page ─────────────────────────────────
+
+def test_the_page_gets_the_count_in_plain_words(store, today):
+    _store_runs(store, today, ["middle"] * 10 + ["easy"] * 10)
+    f = _spread(store, today)["spread"]
+    assert f.plain.startswith("Your last 10 runs: 10 easy. Almost every run was easy")
+    assert "Your first runs (from " in f.plain and "were mostly moderate." in f.plain
+    assert "zone" not in f.plain and "Z3" not in f.plain
+
+
+def test_the_plain_words_say_when_the_zones_moved(store, today):
+    for i in range(20):
+        aid = 600 + i
+        store.upsert_activity(make_activity(aid, today - timedelta(days=2 * (20 - i)), avg_hr=138))
+        bounds = {"hr_z4_low": 144, "hr_z5_low": 162} if i < 10 else {"hr_z4_low": 150, "hr_z5_low": 169}
+        store.update_activity_detail(aid, {"hr_z2_s": 8 * MIN, "hr_z3_s": 32 * MIN, **bounds})
+        store.upsert_activity_splits(aid, [make_split(aid, 0, "RWD_RUN", 2400)])
+    assert "zones were set differently then" in _spread(store, today)["spread"].plain
+
+
+def test_the_run_list_colours_a_run_as_the_count_reads_it(store, today):
+    """A run held in the app's easy band was yellow in the list and "easy" in
+    the count beside it - the page said both."""
+    from runspector import snapshot
+    store.upsert_activity(make_activity(700, today - timedelta(days=1), avg_hr=139))
+    store.update_activity_detail(700, {"hr_z2_s": 19 * MIN, "hr_z3_s": 21 * MIN, **ZONES_MAX})
+    store.upsert_activity_splits(700, [make_split(700, 0, "RWD_RUN", 2400)])
+    (run,) = [r for r in snapshot.build_runs(store) if r["activity_id"] == 700]
+    assert snapshot.band(run["zones_s"]) == "moderate"                  # the zone time alone
+    assert run["band"] == "easy" and "within the easy band" in run["band_why"]
+
+
+def test_time_in_zone_3_is_named_by_its_zone_not_as_moderate_runs(store, today):
+    """With %-of-max zones the easy band reaches into zone 3: ten runs held in
+    it are "10 easy", and their time read "moderate 52 %" beside it - one word,
+    two meanings. Time is named by its zone; the plain sentence says why zone 3
+    holds easy running here."""
+    for i in range(1, 11):
+        store.upsert_activity(make_activity(800 + i, today - timedelta(days=2 * i), avg_hr=139))
+        store.update_activity_detail(800 + i, {"hr_z2_s": 19 * MIN, "hr_z3_s": 21 * MIN, **ZONES_MAX})
+        store.upsert_activity_splits(800 + i, [make_split(800 + i, 0, "RWD_RUN", 2400)])
+    f = {x.key: x for x in facts.learned(store, today)}
+    assert "zone 3 52 %" in f["intensity"].value and "moderate" not in f["intensity"].value
+    assert "easy limit reaches into zone 3" in f["intensity"].plain
+    assert "10 easy" in f["spread"].value
+
+
+def test_the_easy_pace_trend_takes_the_runs_the_list_calls_easy(store, today):
+    from runspector import snapshot
+    for i in range(1, 7):
+        store.upsert_activity(make_activity(820 + i, today - timedelta(days=7 * i), avg_hr=139,
+                                            distance_m=7000, duration_s=2520))
+        store.update_activity_detail(820 + i, {"hr_z2_s": 19 * MIN, "hr_z3_s": 21 * MIN, **ZONES_MAX})
+        store.upsert_activity_splits(820 + i, [make_split(820 + i, 0, "RWD_RUN", 2520)])
+    runs = snapshot.build_runs(store)
+    assert {r["band"] for r in runs} == {"easy"}
+    assert snapshot.build_aerobic(runs, today=today, ref_hr=140)["points"], "easy runs, no points"
+
+
+def test_mixed_names_only_the_kinds_that_were_run(store, today):
+    _store_runs(store, today, ["easy", "middle"] * 5)
+    f = _spread(store, today)["spread"]
+    assert "hard" not in f.plain and "A mix of easy and moderate runs." in f.plain

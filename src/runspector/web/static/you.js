@@ -9,7 +9,8 @@
 //     steps of chats in Claude (`evidence.py`, the state's `ai_record`).
 // Pure: state in, HTML out, so web-tests render it without a page. The draft
 // of an edit lives in app.js, because the page re-renders on every poll.
-import { esc, fmtAgo } from "./ui.js";
+import { esc, fmtAgo, infoHtml } from "./ui.js";
+import { GLOSSARY } from "./logic.js";
 
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const SHORT = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
@@ -280,11 +281,15 @@ function learnedCard(facts) {
       <div class="empty-note">Nothing yet — after a few weeks of synced running the coach knows
         your days, your long run and how you train.</div></div>`;
   }
+  // The plain sentence first (`facts.Fact.plain`); what the coach reads -
+  // the evidence and the change line - one tap away under Details.
   const tiles = rest.map(f => `<div class="fact">
-      <div class="fact-k">${esc(f.label)}</div>
+      <div class="fact-k">${esc(f.label)}${infoHtml(f.label, GLOSSARY)}</div>
       <div class="fact-v">${esc(f.value)}</div>
-      <div class="note">${esc(f.evidence)}${f.change
-        ? ` · <span class="fact-change">${esc(f.change)}</span>` : ""}</div>
+      ${f.plain ? `<div class="fact-plain">${esc(f.plain)}</div>` : ""}
+      <details class="fact-more"><summary>Details</summary>
+        <div class="note">${esc(f.evidence)}${f.change
+          ? ` · <span class="fact-change">${esc(f.change)}</span>` : ""}</div></details>
     </div>`).join("");
   return `<div class="card"><div class="subhead">What the coach has learned about you</div>
     <div class="note">Read from your own data every time the page loads — nothing is stored or

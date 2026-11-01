@@ -622,3 +622,135 @@ export function loadFocusRows(balance) {
 export function loadFocusPhrase(phrase) {
   return phrase ? String(phrase).toLowerCase().replace(/_/g, " ") : "";
 }
+
+/* ── Plain words ──────────────────────────────────────────────────────────
+   What a person without a sports-science background reads first. The
+   technical text (what the coach reads, too) stays one tap away under
+   "Details"; nothing here changes a call, it only says it. */
+
+/** Today's reasons as sentences, from `reason_flags` (a stable key per signal,
+ *  see `logic.readiness_verdict`) and the numbers in `signals`. An unknown key
+ *  keeps the server's own text. */
+export function plainReason(flag, signals = {}) {
+  const s = signals || {}, rest = flag?.level === "rest", t = String(flag?.text || "");
+  switch (flag?.key) {
+    case "hrv":
+      return rest ? "Your heart-rate variability (HRV) is low - a sign your body has not recovered yet."
+                  : "Your heart-rate variability (HRV) is out of its usual range - a sign recovery is not complete.";
+    case "sleep_score":
+      return `${rest ? "You slept badly" : "Your sleep was below par"} (sleep score ${s.sleep_score ?? "?"} of 100).`;
+    case "body_battery":
+      return `Your energy reserve (Body Battery) only reached ${s.body_battery_high ?? "?"} of 100.`;
+    case "resting_hr":
+      return `Your resting heart rate is ${s.resting_hr_delta ?? "a few"} beats above your normal.`;
+    case "acwr":
+      return /detraining/.test(t) ? "You have trained much less than usual lately."
+        : /injury/.test(t) ? "You trained far more this week than usual: the risk of injury rises."
+        : "You trained more this week than usual.";
+    case "data":
+      return "Too little data from your watch for a clear answer.";
+    default:
+      return t;
+  }
+}
+
+/** The plain line when no signal is flagged: "recovered" only for the green
+ *  light's own reason, naming the signals that were there; any other text
+ *  (no health data, an unreadable row) stays the server's. */
+export function plainNoFlags(reasons, signals = {}) {
+  const r = reasons || [];
+  if (r[0] !== "Recovery in the green") return r.join(" ");
+  const s = signals || {};
+  // Garmin's "NONE" is no HRV (logic.readiness_verdict reads it so too).
+  const hrv = s.hrv_status && s.hrv_status !== "NONE";
+  const seen = [hrv && "HRV", s.sleep_score != null && "sleep",
+                s.resting_hr_delta != null && "resting heart rate",
+                s.body_battery_high != null && "energy"].filter(Boolean);
+  if (!seen.length) return "Your body looks recovered.";
+  const list = seen.length === 1 ? seen[0]
+    : `${seen.slice(0, -1).join(", ")} and ${seen[seen.length - 1]}`;
+  return `Your body looks recovered: ${list} ${seen.length === 1 ? "is" : "are"} in the normal range.`;
+}
+
+/** What to do today, in one sentence: the call (`decision_today.decision`). */
+export function todayAction(decision) {
+  return {
+    rest: "Today: no training. Rest - a walk is fine.",
+    easy: "Today: an easy run at most - slow enough to talk in full sentences.",
+    hard: "Today is a good day for your hard session.",
+    unknown: "No call today: not enough data from your watch.",
+  }[decision] || "";
+}
+
+/** The words of the page, explained in one or two sentences each - behind
+ *  the ⓘ next to them. Keyed by the label as the page prints it. */
+export const GLOSSARY = {
+  "HRV": "Heart-rate variability: how much the time between heartbeats varies at night. Low means your body is still busy recovering.",
+  "Resting HR": "Your heart rate at rest, measured at night. Clearly above your normal is a sign of stress, illness or too little recovery.",
+  "Body Battery": "Garmin's estimate of your energy reserve from 0 to 100, charged by sleep and rest.",
+  "Sleep score": "Garmin's rating of last night's sleep from 0 to 100.",
+  "Load ratio": "The last 7 days of training against the last 4 weeks (ACWR). About 0.8 to 1.3 is the normal range; far above means a sudden jump, far below that you have trained much less.",
+  "Last hard session": "Days since your last hard session, as Garmin's training effect counts it. Hard sessions need about two days between them.",
+  "VO2max": "Garmin's estimate of your endurance: how much oxygen your body can use. Higher is fitter. Garmin updates it from runs only.",
+  "Threshold from": "From this heart rate on, running is hard (zone 4). The hard sessions of your plan aim here or above.",
+  "VO2max from": "From this heart rate on, running is very hard (zone 5) - where short intervals for VO2max belong.",
+  "Highest HR": "The highest heart rate your watch has measured.",
+  "Lactate threshold": "The pace and heart rate you can hold for about an hour. Garmin measures it on hard runs.",
+  "Minutes above easy per week": "How many minutes of each week's running were in zones 3-5. About a fifth of your running time there is the usual aim; the rest in zones 1-2.",
+  "Easy pace": "How fast you run at the same easy heart rate. Getting faster at the same heart rate means your endurance improves.",
+  "Heart-rate zones": "Five heart-rate ranges your watch uses: zones 1-2 are easy, zone 3 in between, zones 4-5 hard. The easy limit the app sets can reach a little into zone 3.",
+  "Garmin's load focus": "Garmin's verdict on the mix of your last 4 weeks: easy, hard and very hard training against what your fitness needs.",
+  "How your runs went": "Each run counted as easy, moderate or hard by its heart rate. Most runs easy and some really hard is what works; most runs moderate is the common mistake.",
+  "Intensity (28 days)": "How your running time of the last 4 weeks split across the heart-rate zones. About 80 % in the easy zones 1-2 is the usual aim.",
+  "Load": "Garmin's training load: how much a session strained your body - longer and harder means more. Added up over the last 7 days and an average week.",
+  "Training effect": "Garmin's rating of a run's effect from 0 to 5: aerobic for endurance, anaerobic for speed.",
+};
+
+/** A job's failure reason as a sentence a person can act on. The technical
+ *  text stays in the job's log. */
+export function plainJobError(status, reason) {
+  const r = String(reason || "");
+  if (status === "cancelled") return "Cancelled.";
+  if (status === "timeout") return "The coach took too long. Try again.";
+  if (/restart/i.test(r)) return "Stopped by a restart of the app. Try again.";
+  if (/usage limit|rate limit|quota|hit your limit|limit reached|limit will reset/i.test(r))
+    return "Your Claude usage limit is reached. Try again later.";
+  if (/not logged in|please log ?in|\/login|unauthori[sz]ed|authenticat|not signed in|credentials? (missing|expired|invalid)/i.test(r))
+    return "Claude is not signed in on this computer - see Setup on the Today tab.";
+  if (/without reading any data/i.test(r)) return "The coach answered without looking at your data, so the answer was not kept. Try again.";
+  return "The coach's answer could not be used. Try again - the Log has the details.";
+}
+
+/** `AEROBIC_BASE` → "aerobic base": Garmin's label of a run, readable. */
+export function plainLabel(raw) {
+  return raw ? String(raw).toLowerCase().replace(/_/g, " ") : "";
+}
+
+/** VO2max change over 4 and 8 weeks, only what is known. */
+export function vo2ChangeText(c28, c56, fmtDelta) {
+  const parts = [];
+  if (c28 != null) parts.push(`${fmtDelta(c28)} in 4 weeks`);
+  if (c56 != null) parts.push(`${fmtDelta(c56)} in 8 weeks`);
+  return parts.length ? parts.join(" · ") : "not enough values yet to show a change";
+}
+
+/** Why the call differs from what the recovery light alone would say - in
+ *  plain words, keyed by the call's stable `reason` (`logic.decide_today`).
+ *  On a green light the reasons above say "recovered", so an "Easy" needs its
+ *  own why; on an amber or red light the reasons already are the why (""). */
+export const CALL_WHY = {
+  "no verdict": "",
+  "verdict REST": "",
+  "verdict EASY": "",
+  "48-hour rule": "Your last hard session was too recent (counted by Garmin's training effect): hard sessions need two days between them.",
+  "GO, first session of the week": "This is the first run of your week.",
+  "GO, week below share": "This week still has few minutes in zones 3-5 - about a fifth of your running time there is the aim.",
+  "GO, share reached but no quality": "This week had minutes in zone 3, but none in the hard zones 4-5 yet.",
+  "GO, far over share, all grey zone": "This week already had many minutes in zone 3 and none in zones 4-5: what helps now are easier easy runs, not another hard one.",
+  "GO, share reached": "This week already has its share of minutes in zones 3-5.",
+  "pause": "You are back after a break: the first runs back stay easy, hard sessions return the week after.",
+};
+
+export function callWhy(reason) {
+  return CALL_WHY[reason] ?? "";
+}

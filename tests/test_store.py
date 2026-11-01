@@ -1021,3 +1021,15 @@ def test_a_tap_by_mistake_can_be_taken_back_even_after_it_was_said_over(store, t
     assert store.end_check_in("ill", today) == "over tomorrow"
     assert store.take_back_check_in("ill", today) == "taken back"
     assert store.check_ins(today) == []
+
+
+def test_the_resting_hr_difference_is_the_one_the_rule_read(store, today):
+    """66 against a baseline of 59.5: the reason said "+6" (the rule rounds
+    half to even) and the tile beside it "+7" - one number, two roundings."""
+    for i in range(1, 11):
+        store.upsert_daily(make_day(today - timedelta(days=i), resting_hr=59 if i % 2 else 60))
+    store.upsert_daily(make_day(today, resting_hr=66, sleep_score=85, body_battery_high=90,
+                                hrv_status="BALANCED"))
+    r = store.get_readiness(today)
+    assert r["signals"]["resting_hr_baseline"] == 59.5
+    assert r["signals"]["resting_hr_delta"] == 6 and "Resting HR +6" in r["reasons"][0]

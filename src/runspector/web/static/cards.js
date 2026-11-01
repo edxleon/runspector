@@ -19,7 +19,8 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { esc, fmtAgo, fmtDay, toast, apiGet, apiPost, armOrFire,
-         resetArm } from "./ui.js";
+         resetArm, rearmIn } from "./ui.js";
+import { plainJobError } from "./logic.js";
 
 /* ═══ Pure logic ═══════════════════════════════════════════════════════════ */
 
@@ -52,8 +53,8 @@ export function metaParts(c, { day = fmtDay, ago = fmtAgo } = {}) {
   else if (c.day) t.push(day(c.day));
   if (c.generated_at) t.push("generated " + ago(c.generated_at));
   else if (c.written) t.push("generated " + ago(c.written));
-  const m = modelShort(c.model);
-  if (m) t.push(m);
+  // The model's name is in "How this card was made", not on every card: to a
+  // reader it was one more word without a meaning.
   // `cost_usd` stays in the card file and is deliberately not shown: on a
   // subscription the CLI's figure is nominal, and a price on every card makes
   // it the thing the eye compares. See the note above `tplButton` in app.js.
@@ -171,11 +172,11 @@ export function sourceBadge(s) {
   const why = [];
   if (s.kind === "measured") {
     if (s.called === false) why.push(`it names ${s.ref || "a source"}, which the coach did not look at`);
-    if (s.no_data) why.push("none of its numbers is in what the coach looked at");
+    if (s.no_data) why.push("none of its numbers is in the data the coach read");
     else if (s.unmatched?.length) {
       const one = s.unmatched.length === 1;
-      why.push(`${s.unmatched.join(", ")} ${one ? "is" : "are"} not in what the coach looked at - ${
-        one ? "it may be" : "they may be"} the coach's own arithmetic`);
+      why.push(`${s.unmatched.join(", ")} ${one ? "is" : "are"} not in the data the coach read - `
+               + "probably worked out by the coach");
     }
   }
   return { kind: s.kind, label: k.label, warn: why.length > 0,
@@ -193,8 +194,8 @@ export function evidenceSummary(ev) {
   if (ev.checked === false) return `${looked} · record incomplete, numbers not checked`;
   // `missing` counts every number found nowhere; the list holds only the first.
   const miss = Number(ev.missing ?? (ev.unmatched || []).length) || 0, total = Number(ev.numbers) || 0;
-  const nums = !total ? "" : miss ? `${total - miss} of ${total} numbers found there`
-    : `all ${total} numbers found there`;
+  const nums = !total ? "" : miss ? `${total - miss} of ${total} numbers found in your data`
+    : `all ${total} numbers found in your data`;
   return [looked, nums].filter(Boolean).join(" · ");
 }
 
@@ -848,9 +849,9 @@ export function mountJobs(container, jobs, opts = {}) {
   if (!el) return;
   el.dataset.jobs = "1";
   jobsState.set(el, { jobs, opts });
-  resetArm();                         // a rebuild = confirmation starts over
+  resetArm(el, { keep: true });       // its own Cancel is armed again after the rebuild
   const list = jobsForStrip(jobs, { finished: !!opts.finished });
-  if (!list.length) { el.innerHTML = ""; return; }
+  if (!list.length) { el.innerHTML = ""; rearmIn(el); return; }
   const active = list.filter(isActive).length;
   const avg = avgDurationSec(jobs);
   jobsDrawnAt = Date.now();
@@ -858,6 +859,7 @@ export function mountJobs(container, jobs, opts = {}) {
     <div class="subhead">${esc(opts.title || "Jobs")}${active ? ` · ${active} active` : ""}</div>
     ${list.map(j => renderJobRow(j, avg, opts)).join("")}
   </div>`;
+  rearmIn(el);
   // An open log of a job that is still running goes stale with every poll —
   // pull it again, quietly, and patch the <pre> in place.
   for (const j of list) if (isActive(j) && jobLogs.has(j.id)) loadLog(j.id).catch(() => {});
@@ -875,8 +877,10 @@ function renderJobRow(j, avg, opts) {
   // Active jobs carry their interim message in `note` ("waiting for quota"),
   // failed ones their reason in `result_summary`. For finished jobs that field
   // holds the result — the card shows that, not the strip.
+  // A failure in words a person can act on (`plainJobError`); the technical
+  // reason is in the job's log, one tap away.
   const reasonText = active ? (j.note || j.result_summary)
-                   : j.status !== "done" ? (j.result_summary || j.note) : "";
+                   : j.status !== "done" ? plainJobError(j.status, j.result_summary || j.note) : "";
   const reason = reasonText
     ? `<div class="job-reason${active ? "" : " job-reason-error"}">${esc(truncate(reasonText, 240))}</div>`
     : "";
@@ -891,9 +895,12 @@ function renderJobRow(j, avg, opts) {
               aria-expanded="${!!lines}">Log</button>
       ${active && opts.cancel !== false
         ? `<button type="button" class="job-cancel" data-job-cancel="${esc(j.id)}"
+                   data-arm-key="job-cancel:${esc(j.id)}"
                    data-arm-label="Really cancel?" aria-label="Cancel run">✕ Cancel</button>` : ""}
     </div>
     ${reason}
+    ${lines && !active && j.status !== "done" && (j.result_summary || j.note)
+      ? `<div class="note mono job-tech">The technical reason: ${esc(truncate(j.result_summary || j.note, 300))}</div>` : ""}
     ${lines ? `<pre class="job-log mono" data-job-log-out="${esc(j.id)}">${esc(logText(lines))}</pre>` : ""}
   </div>`;
 }

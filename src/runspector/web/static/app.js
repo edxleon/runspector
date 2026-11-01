@@ -17,11 +17,12 @@
 import {
   esc, fmtDur, fmtHours, fmtPace, fmtKm, fmtNum, fmtDelta, fmtDay, fmtDayShort,
   fmtMinSec, plural, cell, toast, armOrFire, resetArm, apiGet, apiPost,
-  progressInfo, progressEnd,
+  progressInfo, progressEnd, infoHtml, installInfo,
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
   addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, monotonyLine, garminReadinessLine, weightLine, syncOnReturn, checkInView, checkInToast, decidedByWord, heldLabel, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  plainReason, plainNoFlags, todayAction, callWhy, GLOSSARY, plainLabel, vo2ChangeText,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
@@ -74,6 +75,11 @@ function renderVerdict() {
   const v = VERDICT[t.verdict] || { word: "No call", cls: "s-unknown",
                                     sub: "too little data for a verdict" };
   const reasons = (t.reasons || []).map(r => `<li>${esc(r)}</li>`).join("");
+  // The same reasons in plain words (`plainReason`), keyed by the source's
+  // `reason_flags`; "Recovery in the green" has no flag.
+  const flags = t.reason_flags || [];
+  const plain = flags.length ? flags.map(f => plainReason(f, t.signals))
+    : (t.reasons || []).length ? [plainNoFlags(t.reasons, t.signals)] : [];
   // The HEADLINE is today's decision, the recovery light is one input to it.
   // Shown the other way round, a big green "Go" sat above "Easy today - the
   // last hard session was yesterday": whoever read only the big word ran hard.
@@ -133,11 +139,15 @@ function renderVerdict() {
     ${byWord ? `${decisionHtml()}
     ${checkInHtml()}
     <div class="note">The watch: ${esc((t.reasons || []).join(" · ") || "no reasons in the data")}</div>` : `
-    ${reasons ? `<ul class="reasons">${reasons}</ul>`
+    ${plain.length ? `<ul class="reasons">${plain.map(p => `<li>${esc(p)}</li>`).join("")}</ul>`
               : `<div class="empty-note">No reasons in the data.</div>`}
-    ${garminReadinessLine(t.signals) ? `<div class="note">${esc(garminReadinessLine(t.signals))}</div>` : ""}
-    ${decisionHtml()}
-    ${checkInHtml()}`}
+    ${todayActionHtml()}
+    ${checkInHtml()}
+    <details class="card-more"><summary>Details</summary>
+      ${reasons ? `<ul class="reasons">${reasons}</ul>` : ""}
+      ${garminReadinessLine(t.signals) ? `<div class="note">${esc(garminReadinessLine(t.signals))}</div>` : ""}
+      ${decisionHtml()}
+    </details>`}
     ${todayCardHtml()}
     ${vo2LineHtml()}
     ${goal ? `<div class="goal-line">Goal: ${esc(String(goal))}</div>` : ""}`;
@@ -177,6 +187,22 @@ function decisionHtml() {
     <li><span><b>${esc(e.sentence || "")}</b>${esc(standing)}</span></li>
     ${stimulusHtml(e.stimulus)}
   </ul>`;
+}
+
+/* What to do today, in one sentence, and on a hard day which session - the
+   technical sentence behind it (`decisionHtml`) is under Details. */
+function todayActionHtml() {
+  const e = D().decision_today || {};
+  const say = todayAction(e.decision);
+  if (!say) return "";
+  const s = e.stimulus;
+  const which = e.decision === "hard" && s && s.kind && s.kind !== "easy"
+    ? (plannedToday() ? "The run on your calendar for today is the plan."
+                      : `Which one: ${STIMULUS_LABEL[s.kind] || s.kind}.`)
+    : "";
+  const why = callWhy(e.reason);
+  return `<div class="today-action"><b>${esc(say)}</b>${why ? ` ${esc(why)}` : ""}${
+    which ? ` ${esc(which)}` : ""}</div>`;
 }
 
 /* The athlete's own word: ill, pain, sore legs, stressed. The watch sees a
@@ -280,7 +306,8 @@ function todayCardHtml() {
   if (!h.current) {
     return `<div class="today-card">
       <span class="k">Coach</span>
-      <span>The last card is from ${esc(fmtDay(c.day))} — none for today yet.</span>
+      <span>${c.day ? `No card for today yet - the last one is from ${esc(fmtDay(c.day))}.`
+                    : "No card for today yet."}</span>
       <a href="#coach">To the Coach tab →</a></div>`;
   }
   // The card from 07:45 says "train: 4×3 min" — the run was at 08:22. After
@@ -329,26 +356,30 @@ function renderSignals() {
   const flagCls = key => ({ rest: "s-down", easy: "s-warn" })[flags.get(key)] || "";
   const load = D().load || {};
   const ser = D().series || {};
-  const rhrDelta = (s.resting_hr != null && s.resting_hr_baseline != null)
-    ? s.resting_hr - s.resting_hr_baseline : null;
+  // The difference the rule read (`resting_hr_delta`, rounded as it rounds):
+  // computed here it printed +7 beside a reason saying +6.
+  const rhrDelta = s.resting_hr_delta ?? ((s.resting_hr != null && s.resting_hr_baseline != null)
+    ? Math.round(s.resting_hr - s.resting_hr_baseline) : null);
+  const info = k => infoHtml(k, GLOSSARY);
   const acwr = s.acwr ?? load.acwr;
   document.getElementById("signals").innerHTML = `<div class="grid2">
     ${cell("HRV", s.hrv_status || "–", "Garmin status", flagCls("hrv"),
-           ser.hrv_avg_ms, "HRV over the last 28 days", MIN_SPAN.hrv)}
+           ser.hrv_avg_ms, "HRV over the last 28 days", MIN_SPAN.hrv, info("HRV"))}
     ${cell("Resting HR", s.resting_hr != null ? s.resting_hr : "–",
-           rhrDelta != null ? `${fmtDelta(rhrDelta, 0)} vs 27-day baseline`
-                            : "no baseline",
-           flagCls("resting_hr"), ser.resting_hr, "Resting heart rate over the last 28 days", MIN_SPAN.rhr)}
+           rhrDelta != null ? `${fmtDelta(rhrDelta, 0)} vs your normal`
+                            : "your normal is not known yet",
+           flagCls("resting_hr"), ser.resting_hr, "Resting heart rate over the last 28 days", MIN_SPAN.rhr,
+           info("Resting HR"))}
     ${cell("Body Battery", s.body_battery_high != null ? s.body_battery_high : "–",
            "daily high", flagCls("body_battery"), ser.body_battery_high,
-           "Body Battery over the last 28 days", MIN_SPAN.bb)}
+           "Body Battery over the last 28 days", MIN_SPAN.bb, info("Body Battery"))}
     ${cell("Sleep score", s.sleep_score != null ? s.sleep_score : "–",
            "last night", flagCls("sleep_score"), ser.sleep_score,
-           "Sleep score over the last 28 days", MIN_SPAN.score)}
-    ${cell("ACWR", acwr != null ? fmtNum(acwr, 2) : "–",
-           `${load.acwr_status || ""} ${load.acwr_source === "computed"
-             ? "(computed)" : "(Garmin)"}`.trim(), flagCls("acwr"),
-           ser.acwr_ratio, "ACWR over the last 28 days", MIN_SPAN.acwr)}
+           "Sleep score over the last 28 days", MIN_SPAN.score, info("Sleep score"))}
+    ${cell("Load ratio", acwr != null ? fmtNum(acwr, 2) : "–",
+           [(load.acwr_status || "").toLowerCase(), "7 days vs 4 weeks",
+            load.acwr_source === "computed" ? "computed" : ""].filter(Boolean).join(" · "), flagCls("acwr"),
+           ser.acwr_ratio, "Load ratio (ACWR) over the last 28 days", MIN_SPAN.acwr, info("Load ratio"))}
     ${(() => {
       // Counted from the ANCHOR - the last day with data - not from the wall
       // clock. On a stale sync "0" means "on the last day we know about", and
@@ -356,7 +387,9 @@ function renderSignals() {
       // this morning's. `build_decision` gates this through `fresh`; this cell
       // did not, so the two disagreed on the same screen.
       const txt = lastHardLabel(s.days_since_hard_workout, t.day, appToday(), fmtDayShort);
-      return cell("Last hard session", txt, s.training_status || "");
+      return cell("Last hard session", txt,
+                  s.training_status ? `Garmin: ${plainLabel(s.training_status)}` : "",
+                  "", null, "", undefined, info("Last hard session"));
     })()}
   </div>`;
 }
@@ -411,17 +444,21 @@ function renderZones() {
   const hasLt = z.lthr_bpm != null;
   const unreadable = degraded.includes("latest_lactate_threshold") || degraded.includes("max_hr_since");
   document.getElementById("zones").innerHTML = `
-    <div class="subhead">Your bounds</div>
+    <div class="subhead">Your heart-rate bounds</div>
     ${z.z4_low == null && z.z5_low == null && !hasLt
       ? `<div class="empty-note">The recent runs carried no zone bounds.</div>`
       : `<div class="grid2">
-           ${cell("Threshold from", z.z4_low ?? "–", "zone 4")}
-           ${cell("VO2max from", z.z5_low ?? "–", "zone 5")}
-           ${hasLt ? cell("Lactate threshold", z.lthr_bpm, "bpm") : ""}
+           ${cell("Threshold from", z.z4_low ?? "–", "bpm · zone 4, hard", "", null, "", undefined,
+                  infoHtml("Threshold from", GLOSSARY))}
+           ${cell("VO2max from", z.z5_low ?? "–", "bpm · zone 5, very hard", "", null, "", undefined,
+                  infoHtml("VO2max from", GLOSSARY))}
+           ${hasLt ? cell("Lactate threshold", z.lthr_bpm, "bpm", "", null, "", undefined,
+                          infoHtml("Lactate threshold", GLOSSARY)) : ""}
            ${pace ? cell("Threshold pace", pace, "Firstbeat measurement") : ""}
            ${z.max_hr_observed != null
              ? cell("Highest HR", z.max_hr_observed,
-                    `measured ${fmtDay(z.max_hr_day)}`) : ""}
+                    `bpm · measured ${fmtDay(z.max_hr_day)}`, "", null, "", undefined,
+                    infoHtml("Highest HR", GLOSSARY)) : ""}
            ${z.lthr_pct_max_hr != null
              ? cell("Threshold share", `${z.lthr_pct_max_hr} %`, "of the observed maximum") : ""}
          </div>
@@ -662,12 +699,12 @@ function bandBar(z) {
            title="${esc(name)}: ${esc(fmtDur(v))}"></span>` : "";
   const pct = v => Math.round(100 * v / tot);
   return `<div class="bar" style="margin-top:8px">
-      ${seg(easy, "b-easy", "Easy")}${seg(mid, "b-moderate", "Moderate")}${seg(hard, "b-hard", "Hard")}
+      ${seg(easy, "b-easy", "Zones 1-2")}${seg(mid, "b-moderate", "Zone 3")}${seg(hard, "b-hard", "Zones 4-5")}
     </div>
     <div class="bar-legend">
-      ${easy ? `<span><i class="b-easy"></i>Easy ${pct(easy)} %</span>` : ""}
-      ${mid ? `<span><i class="b-moderate"></i>Moderate ${pct(mid)} %</span>` : ""}
-      ${hard ? `<span><i class="b-hard"></i>Hard ${pct(hard)} %</span>` : ""}
+      ${easy ? `<span><i class="b-easy"></i>Zones 1-2 ${pct(easy)} %</span>` : ""}
+      ${mid ? `<span><i class="b-moderate"></i>Zone 3 ${pct(mid)} %</span>` : ""}
+      ${hard ? `<span><i class="b-hard"></i>Zones 4-5 ${pct(hard)} %</span>` : ""}
     </div>`;
 }
 
@@ -688,7 +725,7 @@ function sportIcon(t) {
   return `<span class="sport sport-${k}" aria-hidden="true">${SPORT_ICON[k]}</span>`;
 }
 
-const BAND_TITLE = { easy: "easy", moderate: "grey middle", hard: "hard" };
+const BAND_TITLE = { easy: "easy", moderate: "moderate", hard: "hard" };
 
 function runRow(r) {
   const open = openRun === r.activity_id;
@@ -706,7 +743,7 @@ function runRow(r) {
     r.distance_m ? fmtKm(r.distance_m) : null,
     r.duration_s ? fmtDur(r.duration_s) : null,
     r.pace_s_per_km ? fmtPace(r.pace_s_per_km) : null,
-    r.avg_hr ? `avg ${r.avg_hr}` : null,
+    r.avg_hr ? `avg HR ${r.avg_hr}` : null,
   ].filter(Boolean).join(" · ");
   return `<div class="run${band ? " run-band-" + band : ""}${strength ? " run-strength" : ""}">
     <button class="run-head" data-run="${Number(r.activity_id) || 0}"
@@ -730,18 +767,23 @@ function runDetail(r) {
     rows.push(["Structure", `${st.rep_count}× ${fmtDur(st.avg_rep_duration_s)} ` +
       `(avg ${st.avg_active_hr ?? "–"} active / ${st.avg_recovery_hr ?? "–"} recovery)`]);
   }
+  // Why the run has its colour - the reading "How your runs went" counts by.
+  // Only where there is one: a short run, short reps or a ride keep the
+  // zone-time colour and no claim about the count.
+  if (r.band_why && BAND_TITLE[r.band])
+    rows.push(["Read as", `${BAND_TITLE[r.band]} - ${r.band_why}`]);
   if (r.max_hr) rows.push(["Max HR", r.max_hr]);
   if (r.avg_cadence) rows.push(["Cadence", fmtNum(r.avg_cadence) + " spm"]);
   if (r.aerobic_te != null) rows.push(["Training effect",
     `${fmtNum(r.aerobic_te, 1)} aerobic${r.anaerobic_te != null
       ? " / " + fmtNum(r.anaerobic_te, 1) + " anaerobic" : ""}${
-      r.te_label ? " · " + r.te_label : ""}`]);
+      r.te_label ? " · " + plainLabel(r.te_label) : ""}`]);
   if (r.performance_condition != null)
     rows.push(["Performance condition", fmtDelta(r.performance_condition, 0)]);
   if (r.temperature_c != null) rows.push(["Temperature", fmtNum(r.temperature_c, 1) + " °C"]);
   if (r.vo2max != null) rows.push(["VO2max after", fmtNum(r.vo2max, 1)]);
   if (r.hr_z4_low || r.hr_z5_low)
-    rows.push(["Zones that day", `Z4 from ${r.hr_z4_low ?? "–"}, Z5 from ${r.hr_z5_low ?? "–"}`]);
+    rows.push(["Zones that day", `hard from ${r.hr_z4_low ?? "–"} bpm (zone 4), very hard from ${r.hr_z5_low ?? "–"} (zone 5)`]);
 
   const tpl = (D().templates || []).find(t => t.id === "analyze-run");
   return `<div class="run-detail">
@@ -764,8 +806,9 @@ function renderRuns() {
   const withDetail = runs.filter(r => r.has_detail).length;
   document.getElementById("runs-head").innerHTML = `
     <div class="subhead">Recent sessions</div>
-    <div class="note">${plural(runs.length, "session", "sessions")} · ${withDetail} with detail data
-      (zones/splits). Tap for details.</div>`;
+    <div class="note">${plural(runs.length, "session", "sessions")} · ${withDetail} with heart-rate
+      zones. The stripe: <span class="legend-dot b-easy"></span>easy, <span class="legend-dot b-moderate"></span>moderate,
+      <span class="legend-dot b-hard"></span>hard. Tap a run for details.</div>`;
 
   if (!runs.length) {
     document.getElementById("runs").innerHTML =
@@ -839,13 +882,13 @@ function renderThreshold() {
   const el = document.getElementById("threshold");
   const hist = (z.lt_history || []).filter(p => p.day);
   if ((D().degraded || []).includes("lactate_threshold_history")) {
-    el.innerHTML = `<div class="subhead">Lactate threshold</div>
+    el.innerHTML = `<div class="subhead">Lactate threshold${infoHtml("Lactate threshold", GLOSSARY)}</div>
       <div class="empty-note">History not readable — the measurements could not be
         read from the database.</div>`;
     return;
   }
   if (!hist.length) {
-    el.innerHTML = `<div class="subhead">Lactate threshold</div>
+    el.innerHTML = `<div class="subhead">Lactate threshold${infoHtml("Lactate threshold", GLOSSARY)}</div>
       <div class="empty-note">No measurement yet — Garmin measures the threshold on
         hard runs (threshold block, intervals from zone 4).</div>`;
     return;
@@ -865,7 +908,7 @@ function renderThreshold() {
       <td class="num">${esc(p.lthr_bpm ?? "–")}</td>
       <td class="num">${p.lt_pace_s_per_km != null ? esc(fmtMinSec(p.lt_pace_s_per_km)) : "–"}</td></tr>`).join("");
   el.innerHTML = `
-    <div class="subhead">Lactate threshold</div>
+    <div class="subhead">Lactate threshold${infoHtml("Lactate threshold", GLOSSARY)}</div>
     <div class="verdict-head" style="align-items:baseline">
       <span class="big" style="font-size:34px">${latest.lt_pace_s_per_km != null
         ? esc(fmtMinSec(latest.lt_pace_s_per_km)) + " /km" : esc(latest.lthr_bpm ?? "–") + " bpm"}</span>
@@ -893,17 +936,15 @@ function renderVo2() {
   const v = D().vo2max || {}, s = D().series || {};
   const el = document.getElementById("vo2");
   if (v.current == null) {
-    el.innerHTML = `<div class="subhead">VO2max</div>
+    el.innerHTML = `<div class="subhead">VO2max${infoHtml("VO2max", GLOSSARY)}</div>
       <div class="empty-note">No VO2max in the last 8 weeks.</div>`;
     return;
   }
   el.innerHTML = `
-    <div class="subhead">VO2max</div>
+    <div class="subhead">VO2max${infoHtml("VO2max", GLOSSARY)}</div>
     <div class="verdict-head" style="align-items:baseline">
       <span class="big" style="font-size:34px">${fmtNum(v.current, 1)}</span>
-      <span class="verdict-sub">
-        28 days ${esc(fmtDelta(v.change_28d))} ·
-        56 days ${v.change_56d == null ? "no baseline" : esc(fmtDelta(v.change_56d))}</span>
+      <span class="verdict-sub">${esc(vo2ChangeText(v.change_28d, v.change_56d, fmtDelta))}</span>
     </div>
     ${stepChart(s.days || [], s.vo2max || [], { minSpan: VO2_MIN_SPAN,
         label: "VO2max as a step curve, axis at least 3 points wide" })}
@@ -1050,11 +1091,18 @@ function renderIntensity() {
         <text x="${(x + bw / 2).toFixed(1)}" y="${H - 14}" text-anchor="middle">${
           esc(barLabel(w.week_start))}</text>`;
     }).join("")}
-    <text x="4" y="${H - 2}">min above easy (Z3–Z5), solid = above threshold (Z4–Z5) · line = ${pct}</text>
   </svg>`;
+  // The legend under the chart, as text that wraps: inside the SVG it ran past
+  // the 320-unit width and ended at "line =".
+  const legend = `<div class="bar-legend chart-legend">
+      <span><i class="legend-bar"></i>bar: minutes in zones 3-5</span>
+      <span><i class="legend-solid"></i>bright part: zones 4-5, hard</span>
+      <span><i class="legend-line"></i>dashed line: ${esc(pct)} of that week's running time</span>
+    </div>`;
   el.innerHTML = `
-    <div class="subhead">Minutes above easy per week</div>
+    <div class="subhead">Minutes above easy per week${infoHtml("Minutes above easy per week", GLOSSARY)}</div>
     ${svg}
+    ${legend}
     <div class="note" style="margin-top:6px">${hits} of ${plural(full, "full week", "full weeks")}
       ${full === 1 ? "is" : "are"} at or above the ${pct} share.${lightAddendum()}</div>
     <details class="card-more"><summary>How this is counted</summary>
@@ -1076,7 +1124,7 @@ function renderAerobic() {
   const el = document.getElementById("aerobic");
   const pts = a.points || [];
   if (pts.length < 2) {
-    el.innerHTML = `<div class="subhead">Easy pace${a.ref_hr ? ` at ${esc(a.ref_hr)} bpm` : ""}</div>
+    el.innerHTML = `<div class="subhead">Easy pace${a.ref_hr ? ` at ${esc(a.ref_hr)} bpm` : ""}${infoHtml("Easy pace", GLOSSARY)}</div>
       <div class="empty-note">Too few easy runs for a trend yet.</div>`;
     return;
   }
@@ -1095,7 +1143,7 @@ function renderAerobic() {
   const temps = pts.filter(p => p.temp_c != null).map(p =>
     `${esc(fmtDayShort(p.week_start))} ${fmtNum(p.temp_c, 0)} °C`).slice(-3).join(", ");
   el.innerHTML = `
-    <div class="subhead">Easy pace at ${esc(a.ref_hr)} bpm</div>
+    <div class="subhead">Easy pace at ${esc(a.ref_hr)} bpm${infoHtml("Easy pace", GLOSSARY)}</div>
     <div class="verdict-head" style="align-items:baseline">
       <span class="big" style="font-size:34px">${esc(fmtMinSec(a.current))} /km</span>
       <span class="verdict-sub">${clear
@@ -1256,12 +1304,12 @@ function renderTrendHead() {
   // fallen volume = a small denominator, not an extreme numerator.
   let acwr = "";
   if (load.acwr != null && load.acwr > 1.3 && down) {
-    acwr = `<div class="thin-data">ACWR ${fmtNum(load.acwr, 2)} is high because the chronic
-      load has fallen to ${fmtNum(load.chronic_weekly)} per week — not because this week
-      was extreme. The denominator is small, the numerator is not large.</div>`;
+    acwr = `<div class="thin-data">Load ratio ${fmtNum(load.acwr, 2)} is high because your
+      usual weekly load has fallen to ${fmtNum(load.chronic_weekly)} - not because this week
+      was extreme.</div>`;
   } else if (load.acwr != null && load.acwr < 0.8) {
-    acwr = `<div class="thin-data">ACWR ${fmtNum(load.acwr, 2)}: the last seven days are
-      clearly below the four-week average — the stimulus is missing.</div>`;
+    acwr = `<div class="thin-data">Load ratio ${fmtNum(load.acwr, 2)}: the last seven days are
+      clearly below your four-week average - too little training to keep improving.</div>`;
   }
   el.innerHTML = `<div class="subhead">Where you stand</div>
     <div class="trend-sentence${down ? " s-warn" : ""}">${sentence}</div>${acwr}`;
@@ -1291,11 +1339,11 @@ function renderDistribution() {
     <div class="subhead">Distribution (28 days)</div>
     ${bandBar({ z1: i28.easy_s, z2: 0, z3: i28.moderate_s, z4: i28.hard_s, z5: 0 })}
     ${grey != null && grey > 20
-      ? `<div class="thin-data">${fmtNum(grey, 0)} % sit in zone 3 — the middle
-           that is too hard for recovery and too soft for a stimulus.</div>` : ""}
-    <div class="note" style="margin-top:8px">84 days: easy ${fmtNum(i84.easy_pct, 0)} % ·
-      moderate ${fmtNum(i84.moderate_pct, 0)} % · hard ${fmtNum(i84.hard_pct, 0)} %
-      (${esc(i84.with_detail)}/${esc(i84.total_runs)} runs with detail data)</div>`;
+      ? `<div class="thin-data">${fmtNum(grey, 0)} % in zone 3 - in between: harder than easy
+           running, easier than the hard sessions that make you faster.</div>` : ""}
+    <div class="note" style="margin-top:8px">84 days: zones 1-2 ${fmtNum(i84.easy_pct, 0)} % ·
+      zone 3 ${fmtNum(i84.moderate_pct, 0)} % · zones 4-5 ${fmtNum(i84.hard_pct, 0)} %
+      (${esc(i84.with_detail)}/${esc(i84.total_runs)} runs with heart-rate zones)</div>`;
 }
 
 function renderAcwr() {
@@ -1303,19 +1351,21 @@ function renderAcwr() {
   const vals = (s.acwr_ratio || []).map((v, i) => [(s.days || [])[i], v]).filter(p => p[1] != null);
   const last = vals.slice(-10).reverse();
   document.getElementById("acwr").innerHTML = `
-    <div class="subhead">Load</div>
+    <div class="subhead">Load${infoHtml("Load", GLOSSARY)}</div>
     <div class="grid2">
-      ${cell("ACWR", load.acwr != null ? fmtNum(load.acwr, 2) : "–", load.acwr_status || "")}
-      ${cell("Acute (7 d)", fmtNum(load.acute_7d), "training load")}
-      ${cell("Chronic", fmtNum(load.chronic_weekly), "per week")}
-      ${cell("Status", load.training_status || "–", "Garmin")}
+      ${cell("Load ratio", load.acwr != null ? fmtNum(load.acwr, 2) : "–",
+             [(load.acwr_status || "").toLowerCase(), "7 days vs 4 weeks"].filter(Boolean).join(" · "),
+             "", null, "", undefined, infoHtml("Load ratio", GLOSSARY))}
+      ${cell("Last 7 days", fmtNum(load.acute_7d), "training load")}
+      ${cell("Usual week", fmtNum(load.chronic_weekly), "training load, 4-week average")}
+      ${cell("Status", load.training_status ? plainLabel(load.training_status) : "–", "Garmin")}
     </div>
     ${last.length ? `<div class="note" style="margin-top:8px">Latest: ${
       last.map(p => `${esc(fmtDayShort(p[0]))} ${fmtNum(p[1], 2)}`).join(" · ")}</div>` : ""}
     ${monotonyLine(load.monotony) ? `<div class="note" style="margin-top:6px">${
       esc(monotonyLine(load.monotony))}</div>` : ""}
-    <div class="thin-data">Below 0.80 the stimulus is missing, above 1.30 the injury
-      risk grows — in between is the range in which adaptation happens.</div>
+    <div class="thin-data">Load ratio below 0.80: too little training to keep improving;
+      above 1.30: a sudden jump that raises the risk of injury. In between your body adapts.</div>
     ${loadFocusHtml(load.balance)}`;
 }
 
@@ -1341,6 +1391,7 @@ function loadFocusHtml(balance) {
 const KIND_TITLE = {
   "analyze-run": "Run analysis", "train-today": "Train today?",
   "why-vo2max": "VO2max", "week-review": "Training week",
+  "plan-session": "Session plan", "plan-week": "Week plan", "ask": "Your questions",
 };
 
 /** Make a card's reference readable: "9000000042" becomes "Threshold run,
@@ -1451,6 +1502,7 @@ function renderHealth() {
 
 function renderAll() {
   resetArm();
+  installInfo();
   document.getElementById("demo-badge").hidden = !D().demo;
   // Where the data lives and how to remove it: the question nobody asks until
   // they want to stop, and then it should not need the README.

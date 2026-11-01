@@ -207,10 +207,28 @@ def build_series(rows: list[dict]) -> dict:
     return {"days": [r["day"] for r in rows], **{k: [r.get(k) for r in rows] for k in keys}}
 
 
+#: `logic.run_shape`'s word for a run, as the run list colours it.
+_SHAPE_BAND = {"easy": "easy", "middle": "moderate", "hard": "hard"}
+
+
+def run_band(a: dict) -> tuple[str | None, str | None]:
+    """The run list's colour and why: the same reading as "How your runs went"
+    (`logic.run_shape` - a run held in the app's easy band is easy, a rep
+    session goes by its reps), and the zone-time band where a run cannot be
+    judged that way. Two readings showed a yellow run the count called easy."""
+    if not a.get("has_detail"):
+        return None, None
+    shape = logic.run_shape(a, a.get("structure") or {})
+    if shape:
+        return _SHAPE_BAND[shape["shape"]], shape["why"]
+    return band(a.get("zones_s")), None
+
+
 def build_runs(store: Store, limit: int = RUNS) -> list[dict]:
     """Only the fields the app shows (the raw row has ~35 columns)."""
     out = []
     for a in store.get_recent_runs_detail(limit=limit):
+        run_colour, why = run_band(a)
         out.append({
             "activity_id": a["activity_id"],
             "day": a.get("day"),
@@ -232,7 +250,8 @@ def build_runs(store: Store, limit: int = RUNS) -> list[dict]:
             "avg_cadence": a.get("avg_cadence"),
             "has_detail": a.get("has_detail"),
             "zones_s": a.get("zones_s") or {},
-            "band": band(a.get("zones_s")) if a.get("has_detail") else None,
+            "band": run_colour,
+            "band_why": why,
             "hr_z4_low": a.get("hr_z4_low"),
             "hr_z5_low": a.get("hr_z5_low"),
             "structure": a.get("structure") or {},
@@ -428,7 +447,9 @@ def build_aerobic(runs_wide: list[dict], *, today: date, ref_hr: int, weeks: int
         hr, pace = r.get("avg_hr"), r.get("pace_s_per_km")
         if d < start or not hr or not pace or (r.get("distance_m") or 0) < 3000:
             continue
-        b = band(r.get("zones_s")) if r.get("has_detail") else None
+        # The run list's reading (`run_band`): a run held in the app's easy band
+        # is easy here too, not only one with little zone-3 time.
+        b = (r.get("band") or band(r.get("zones_s"))) if r.get("has_detail") else None
         if not (b == "easy" if b else hr <= ref_hr + 6):
             continue
         wk = date.fromisoformat(d)

@@ -759,3 +759,89 @@ test("You tab: what the AI reads and what is kept, in plain words", async () => 
   assert.match(rows, /- failed/);
   assert.match(youHtml([], null, {}, { chats: [], chat_days: 14, where: "x" }), /What the AI reads/);
 });
+
+/* ── Plain words ──────────────────────────────────────────────────────── */
+
+import { plainReason, todayAction, GLOSSARY, plainJobError, plainLabel, vo2ChangeText }
+  from "../src/runspector/web/static/logic.js";
+
+test("every reason key the server sends reads as a sentence", () => {
+  const s = { sleep_score: 41, body_battery_high: 10, resting_hr_delta: 6 };
+  const say = (key, level, text = "") => plainReason({ key, level, text }, s);
+  assert.match(say("hrv", "rest", "HRV LOW"), /not recovered/);
+  assert.equal(say("sleep_score", "rest"), "You slept badly (sleep score 41 of 100).");
+  assert.equal(say("body_battery", "rest"), "Your energy reserve (Body Battery) only reached 10 of 100.");
+  assert.equal(say("resting_hr", "easy"), "Your resting heart rate is 6 beats above your normal.");
+  assert.match(say("acwr", "easy", "ACWR 0.0 (detraining range - stimulus missing)"), /much less than usual/);
+  assert.match(say("acwr", "rest", "ACWR 1.7 (>1.5 = injury risk)"), /injury/);
+  assert.equal(say("unknown_key", "easy", "something new"), "something new");
+});
+
+test("each call says what to do today", () => {
+  for (const d of ["rest", "easy", "hard"]) assert.match(todayAction(d), /^Today/);
+  assert.equal(todayAction("other"), "");
+});
+
+test("no explanation uses the words it explains away", () => {
+  for (const [term, text] of Object.entries(GLOSSARY)) {
+    assert.ok(text.length > 20 && text.length < 260, term);
+    assert.doesNotMatch(text, /\bZ[1-5]\b|stimulus|polari[sz]ed/, term);
+  }
+});
+
+test("a failed job says what to do, never the stack", () => {
+  assert.match(plainJobError("failed", "no JSON card in the answer"), /could not be used/);
+  assert.match(plainJobError("failed", "claude reported an error: usage limit reached"), /usage limit/);
+  assert.match(plainJobError("timeout", "no answer within 900s"), /too long/);
+  assert.equal(plainJobError("cancelled", "cancelled"), "Cancelled.");
+  assert.equal(plainLabel("AEROBIC_BASE"), "aerobic base");
+});
+
+test("a VO2max change shows only what is known", () => {
+  const d = v => (v > 0 ? "+" : "") + v;
+  assert.equal(vo2ChangeText(null, null, d), "not enough values yet to show a change");
+  assert.equal(vo2ChangeText(0.3, null, d), "+0.3 in 4 weeks");
+  assert.equal(vo2ChangeText(-0.4, -1.1, d), "-0.4 in 4 weeks · -1.1 in 8 weeks");
+});
+
+import { callWhy, CALL_WHY } from "../src/runspector/web/static/logic.js";
+const CALL_WHY_FOR_TEST = () => CALL_WHY;
+
+test("a call the green light does not explain says why", () => {
+  assert.match(callWhy("48-hour rule"), /two days between/);
+  assert.equal(callWhy("verdict REST"), "", "the reasons above already are the why");
+  assert.equal(callWhy("something new"), "");
+});
+
+import { plainNoFlags } from "../src/runspector/web/static/logic.js";
+
+test("recovered is said only for a green light, of the signals that are there", () => {
+  assert.equal(plainNoFlags(["No health data yet."], {}), "No health data yet.");
+  assert.equal(plainNoFlags(["Recovery data unreadable."], {}), "Recovery data unreadable.");
+  const first = plainNoFlags(["Recovery in the green"], { hrv_status: "BALANCED", sleep_score: 80 });
+  assert.match(first, /HRV and sleep/);
+  assert.doesNotMatch(first, /resting heart rate|Body Battery|energy/);
+  assert.match(plainNoFlags(["Recovery in the green"], { hrv_status: "BALANCED", sleep_score: 80,
+    resting_hr_delta: 1, body_battery_high: 80 }), /HRV, sleep, resting heart rate and energy/);
+});
+
+test("the call's why names minutes by their zones, and the 48 hours by Garmin's effect", () => {
+  for (const [k, v] of Object.entries(CALL_WHY_FOR_TEST())) {
+    assert.doesNotMatch(v, /moderate running|hard training/, k);
+  }
+  assert.match(callWhy("48-hour rule"), /training effect/);
+  assert.match(callWhy("GO, share reached"), /zones 3-5/);
+});
+
+test("no call is said as such, and a missing HRV is not called normal", () => {
+  assert.match(todayAction("unknown"), /not enough data/);
+  assert.doesNotMatch(todayAction("hard"), /recovered/);
+  assert.doesNotMatch(plainNoFlags(["Recovery in the green"], { hrv_status: "NONE", sleep_score: 80 }), /HRV/);
+});
+
+test("an error's wording is matched, not its every word", () => {
+  assert.doesNotMatch(plainJobError("failed", "Usage: claude [options] [command]"), /usage limit/);
+  assert.doesNotMatch(plainJobError("failed", "author field missing"), /signed in/);
+  assert.match(plainJobError("failed", "You've hit your usage limit"), /usage limit/);
+  assert.match(plainJobError("failed", "Not logged in - please run /login"), /not signed in/);
+});

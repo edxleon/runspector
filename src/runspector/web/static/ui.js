@@ -195,15 +195,44 @@ export function sparkline(values, { w = 100, h = 22, label = "", minSpan = 0 } =
           vector-effect="non-scaling-stroke"/></svg>`;
 }
 
+/* ── Explanations (ⓘ) ─────────────────────────────────────────────────── */
+
+/** An ⓘ after a word the page explains (`GLOSSARY` in logic.js): a button that
+ *  opens one or two sentences under it. Empty for a word without one. The
+ *  text is the page's own, still escaped. */
+export function infoHtml(term, glossary) {
+  const text = glossary && glossary[term];
+  if (!text) return "";
+  return `<button type="button" class="info" data-info aria-expanded="false"
+      aria-label="What is ${esc(term)}?">ⓘ</button><span class="info-text" hidden>${esc(text)}</span>`;
+}
+
+/** One listener for every ⓘ on the page, installed once. */
+export function installInfo(root = document) {
+  if (root.__infoInstalled) return;
+  root.__infoInstalled = true;
+  root.addEventListener("click", ev => {
+    const btn = ev.target.closest?.("button[data-info]");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const text = btn.nextElementSibling;
+    if (!text) return;
+    const open = text.hidden;
+    text.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+  });
+}
+
 /* ── Metric cell ──────────────────────────────────────────────────────── */
 
 /** One metric with caption, sub-line and optional trend.
  *  `series` are raw values for the sparkline, `minSpan` their smallest value
  *  range (see `sparkline`). The value ALWAYS goes through `esc()` — callers
  *  must not pass finished HTML. */
-export function cell(k, v, x, cls, series, label, minSpan) {
+export function cell(k, v, x, cls, series, label, minSpan, info = "") {
   const sp = series ? sparkline(series.slice(-28), { label: label || k, minSpan }) : "";
-  return `<div class="cell"><span class="k">${esc(k)}</span>
+  return `<div class="cell"><span class="k">${esc(k)}${info}</span>
     <span class="v ${esc(cls || "")}">${esc(v)}</span>
     <span class="x">${esc(x || "")}</span>
     ${sp ? `<span class="sparkwrap ${esc(cls || "")}">${sp}</span>` : ""}</div>`;
@@ -321,10 +350,21 @@ export function progressHide() {
 
 let armed = { id: null, timer: null, orig: null, btn: null };
 
+/** How long "Tap again" waits. Four seconds were too short to read the button,
+ *  and the job strip's redraw every 8 s cut it shorter: a first tap that seemed
+ *  to do nothing. */
+export const ARM_MS = 10000;
+
 /** A re-render resets the arming. Without this the armed state survived an
  *  innerHTML update, and the NEW button fired on the first tap — safe beats
- *  convenient. */
-export function resetArm() {
+ *  convenient. `scope`: only when the armed button is inside what is redrawn -
+ *  the job strip's redraw no longer disarms the Ask button beside it. */
+export function resetArm(scope = null, { keep = false } = {}) {
+  if (scope && armed.btn && armed.btn.isConnected && !scope.contains(armed.btn)) return;
+  // `keep`: the redraw puts the same button back (it carries `data-arm-key`) -
+  // `rearmIn` arms the new one. The job strip redraws every 8 s; its
+  // "Really cancel?" never lasted longer than that.
+  if (keep && armed.id) return;
   if (armed.timer) clearTimeout(armed.timer);
   // Reset the BUTTON as well, not only the state: `resetArm` is also called
   // from places that do NOT re-render the button — the job poller, for one,
@@ -337,6 +377,24 @@ export function resetArm() {
     armed.btn.innerHTML = armed.orig;
   }
   armed = { id: null, timer: null, orig: null, btn: null };
+}
+
+/** After a redraw kept with `resetArm(scope, { keep: true })`: arm the button
+ *  that came back with the armed key, or end the arming when it did not. */
+export function rearmIn(scope) {
+  // Only a button the redraw replaced: one still on the page is armed as it is.
+  if (!armed.id || !scope || (armed.btn && armed.btn.isConnected)) return;
+  const key = globalThis.CSS?.escape ? CSS.escape(armed.id) : armed.id;
+  const btn = scope?.querySelector?.(`[data-arm-key="${key}"]`);
+  if (!btn) {
+    if (armed.timer) clearTimeout(armed.timer);
+    armed = { id: null, timer: null, orig: null, btn: null };
+    return;
+  }
+  armed.orig = btn.innerHTML;
+  armed.btn = btn;
+  btn.classList.add("armed");
+  btn.textContent = btn.dataset.armLabel || "Sure? Tap again";
 }
 
 /** Two-tap confirmation. The button content is saved and restored through
@@ -359,9 +417,11 @@ export function armOrFire(btn, key, fire) {
   const orig = btn.innerHTML;
   btn.textContent = btn.dataset.armLabel || "Sure? Tap again";
   armed = { id: key, orig, btn, timer: setTimeout(() => {
+    // The button armed NOW - after a kept redraw it is not the one first tapped.
+    const b = armed.btn, o = armed.orig;
     armed = { id: null, timer: null, orig: null, btn: null };
-    btn.classList.remove("armed"); btn.innerHTML = orig;
-  }, 4000) };
+    if (b) { b.classList.remove("armed"); b.innerHTML = o; }
+  }, ARM_MS) };
 }
 
 /* ── Login overlay ────────────────────────────────────────────────────── */

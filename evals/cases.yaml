@@ -1587,7 +1587,7 @@ cases:
       - Your days: no fixed weekdays - your runs fall on 7 different weekdays (of 8 weeks)
       - Consistency: 8 of the last 8 weeks with a run - Monday-weeks, the running week not counted
       - Intensity (28 days): easy 60 %, zone 3 40 %, hard 0 % (zone 5 0 %) - 14 of 14 runs with zone detail; a polarised week is ~80 % easy
-      - How your runs went: last 10: mostly in the middle - 10 in the middle - each run by its zone time, as the run list colours it (hard also for 15 minutes in zones 4-5; a rep session by its reps; easy within the app's easy band); never one run alone
+      - How your runs went: last 10: mostly moderate - 10 moderate - each run by its zone time, as the run list colours it (hard also for 15 minutes in zones 4-5; a rep session by its reps; easy within the app's easy band); never one run alone
       - VO2max: 52.0 (+0.2 in 8 weeks) - last new value from a run 10 days ago
       - Resting HR baseline: 48.0 bpm - mean of the 27 nights before the last one
       - Highest heart rate seen: 168 bpm - on 2026-06-17
@@ -1845,13 +1845,13 @@ cases:
         tab, or check in as ill - so that today's decision follows it? PASS only if
         it points them to recording it in the app.
 
-  # 38. Every run in the middle (roadmap 22). The profile counts the last 10 runs by
-  #     their own zone time: 8 in the middle, 2 easy.
+  # 38. Every run moderate (roadmap 22). The profile counts the last 10 runs by
+  #     their own zone time: 8 moderate, 2 easy.
   #     Garmin's training effect labels most of them Quality or Long Run. The runner
   #     asks why they are not getting faster. The count by zones is the diagnosis,
   #     not Garmin's labels; the fix names the athlete's own heart rates.
   - id: runs-in-the-middle-by-zones-not-labels
-    description: "athlete asks why they are not getting faster; the profile counts 8 of the last 10 runs in the middle, 2 easy, while Garmin labels most of them Quality/Long Run -> the missing spread is the lever, with its count by zones, not Garmin's labels; easy runs slower and hard sessions at or above zone 4, with the athlete's own bpm"
+    description: "athlete asks why they are not getting faster; the profile counts 8 of the last 10 runs moderate, 2 easy, while Garmin labels most of them Quality/Long Run -> the missing spread is the lever, with its count by zones, not Garmin's labels; easy runs slower and hard sessions at or above zone 4, with the athlete's own bpm"
     today: 2026-06-17
     input: |
       Athlete: I run four times a week, every run feels solid, but I'm not getting any faster. What's going on?
@@ -1871,7 +1871,7 @@ cases:
       - Running days: 4 a week - 4 run day(s) in a typical week (median of 8 weeks)
       - Your days: tue, thu, sat, sun - you run on tue (8/8), thu (7/8), sat (8/8), sun (6/8)
       - Consistency: 8 of the last 8 weeks with a run - Monday-weeks, the running week not counted
-      - How your runs went: last 10: mostly in the middle - 2 easy, 8 in the middle - each run by its zone time, as the run list colours it (hard also for 15 minutes in zones 4-5; a rep session by its reps; easy within the app's easy band); never one run alone
+      - How your runs went: last 10: mostly moderate - 2 easy, 8 moderate - each run by its zone time, as the run list colours it (hard also for 15 minutes in zones 4-5; a rep session by its reps; easy within the app's easy band); never one run alone
       - VO2max: 47.0 (+0.0 in 8 weeks) - last new value from a run 4 days ago
       - Resting HR baseline: 52.0 bpm - mean of the 27 nights before the last one
       - Highest heart rate seen: 192 bpm - on 2026-05-30
@@ -1895,10 +1895,10 @@ cases:
       judge_question: >
         Context: a runner who runs four times a week asks why they are not getting
         faster. The app's profile counts their last 10 runs by their own zone time:
-        8 "in the middle" (neither easy nor hard), 2 easy. Zone 4 starts at 169 bpm; the recent runs average 157-161
+        8 "moderate" (neither easy nor hard), 2 easy. Zone 4 starts at 169 bpm; the recent runs average 157-161
         bpm; Garmin's training-effect labels call five of them "Quality" and two a
         "Long Run". The coach's rule: the count by zones is the diagnosis - Garmin's
-        training effect calls a run in the middle "hard", so its labels are not
+        training effect calls a moderate run "hard", so its labels are not
         evidence of hard sessions. Does the answer meet ALL of these: (1) it names
         the pattern - most runs neither really easy nor really hard - with a number
         from the data (8 of 10, or the ~160 averages against zone 4 at 169); (2) it

@@ -30,8 +30,10 @@ test("metaParts", () => {
                       model: "claude-opus-5", cost_usd: 1.7 }, fmt);
   assert.equal(m[0], "data up to D:2026-09-06", "meta starts with the data status, not with '3 h ago'");
   assert.equal(m[1], "generated A:2026-09-06T07:45:01+02:00");
-  // No price on the card: `cost_usd` is in the input above and must NOT appear.
-  assert.deepEqual(m.slice(2), ["opus-5"]);
+  // No price on the card: `cost_usd` is in the input above and must NOT appear;
+  // nor the model's name - a word without a meaning to the reader (it is in
+  // "How this card was made").
+  assert.deepEqual(m.slice(2), []);
   m = metaParts({ day: "2026-08-13", written: "2026-08-13T08:16:23" }, fmt);
   assert.equal(m.join("|"), "D:2026-08-13|generated A:2026-08-13T08:16:23",
                "card without stamps: day/written as fallback, no model");
@@ -268,7 +270,7 @@ test("sourceBadge: plain words, and the reason when 'your data' is not backed", 
   const bad = sourceBadge({ kind: "measured", ref: "get_trend", called: false, unmatched: ["93.4"] });
   assert.equal(bad.warn, true);
   assert.match(bad.why, /get_trend, which the coach did not look at/);
-  assert.match(bad.why, /93\.4 is not in what the coach looked at - it may be the coach's own arithmetic/);
+  assert.match(bad.why, /93\.4 is not in the data the coach read - probably worked out by the coach/);
   // a derived point may hold a number of its own making - no warning
   assert.equal(sourceBadge({ kind: "derived", unmatched: ["13.7"] }).warn, false);
 });
@@ -279,9 +281,9 @@ test("evidenceSummary: what the coach looked at, and how many numbers it backs",
   assert.equal(evidenceSummary({ recorded: false }), "not recorded for this card");
   assert.equal(evidenceSummary({ recorded: true, reads: 1, numbers: 0, unmatched: [] }), "looked at 1 thing");
   assert.equal(evidenceSummary({ recorded: true, reads: 6, numbers: 16, unmatched: [{}, {}] }),
-               "looked at 6 things · 14 of 16 numbers found there");
+               "looked at 6 things · 14 of 16 numbers found in your data");
   assert.equal(evidenceSummary({ recorded: true, reads: 6, numbers: 9, unmatched: [] }),
-               "looked at 6 things · all 9 numbers found there");
+               "looked at 6 things · all 9 numbers found in your data");
 });
 
 test("renderEvidence: every value from the record is escaped, and it says what it is", async () => {
@@ -319,7 +321,7 @@ test("renderCard: badges in front of the points, the reason under a doubtful one
   assert.match(html, /class="src src-measured"[^>]*>your data<\/span> HRV &lt;b&gt;38/);
   assert.match(html, /src-warn[^>]*>! your data/);
   assert.match(html, /class="src-why">Marked as your data, but/);
-  assert.match(html, /How this card was made · looked at 1 thing · 1 of 2 numbers found there/);
+  assert.match(html, /How this card was made · looked at 1 thing · 1 of 2 numbers found in your data/);
   assert.match(html, /data-evidence="j-1"/);
   const old = renderCard({ id: "j-2", kind: "train-today", headline: "h", bullets: ["b"] }, { open: true });
   assert.doesNotMatch(old, /class="src |How this card was made/, "an old card looks as it did");
@@ -329,7 +331,7 @@ test("evidenceSummary: counts every number not found, not only the listed ones",
   const { evidenceSummary } = await import("../src/runspector/web/static/cards.js");
   const listed = Array.from({ length: 12 }, (_, i) => ({ where: "point 1", value: String(i) }));
   assert.equal(evidenceSummary({ recorded: true, reads: 2, numbers: 30, missing: 18, unmatched: listed }),
-               "looked at 2 things · 12 of 30 numbers found there");
+               "looked at 2 things · 12 of 30 numbers found in your data");
 });
 
 test("renderEvidence: a record that was deleted is not called older than the record", async () => {

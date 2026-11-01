@@ -982,3 +982,26 @@ def test_a_card_is_not_current_once_the_athlete_checked_in(httpd, monkeypatch):
         for j in jobs.read_jobs(100):
             if j.get("status") in jobs.ACTIVE:
                 jobs.request_cancel(j["id"])
+
+
+def test_every_reason_for_the_call_has_its_plain_why():
+    """The page's plain view says why a green light still gives "Easy" - keyed by
+    the call's `reason` (`logic.decide_today`). A reason added there without a
+    sentence in `CALL_WHY` (logic.js) would leave "recovered" above "easy only"
+    with nothing between them."""
+    import inspect
+    import re
+    from pathlib import Path
+
+    from runspector import logic
+    # The rules live in `_decide_today`; the wrapper adds its own ("pause").
+    src = inspect.getsource(logic._decide_today) + inspect.getsource(logic.decide_today)
+    reasons = set(re.findall(r'"reason": "([^"]+)"|reason="([^"]+)"', src))
+    reasons = {a or b for a, b in reasons}
+    reasons.add(f"{logic.HARD_SPACING_DAYS * 24}-hour rule")
+    assert {"verdict REST", "GO, share reached", "pause"} <= reasons, "the regex finds the rules"
+    js = (Path(logic.__file__).parent / "web" / "static" / "logic.js").read_text(encoding="utf-8")
+    table = js[js.index("export const CALL_WHY"):]
+    table = table[:table.index("};")]
+    missing = [r for r in sorted(reasons) if f'"{r}":' not in table]
+    assert reasons and not missing, missing

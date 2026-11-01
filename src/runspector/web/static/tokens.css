@@ -542,3 +542,28 @@ ol.first-run code { font-family: ui-monospace, Consolas, monospace; font-size: 1
 .rec-when { flex: 0 0 auto; min-width: 5.5em; color: var(--muted); font-size: 12px; }
 .rec-what { min-width: 0; overflow-wrap: anywhere; }
 .rec-failed .rec-what { color: var(--warn); }
+
+/* ⓘ: a word the page explains (`GLOSSARY` in logic.js), opened under it. It
+   sits inside small upper-case labels, so it resets their lettering. */
+.info { margin-left: 4px; padding: 0 2px; border: 0; background: none; color: var(--accent);
+        font: inherit; font-size: 12px; font-weight: 400; line-height: 1; cursor: pointer;
+        text-transform: none; letter-spacing: 0; vertical-align: baseline; }
+.info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.info-text { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; line-height: 1.45;
+             color: var(--text); text-transform: none; letter-spacing: 0; }
+.info-text[hidden] { display: none; }
+/* What to do today, in one sentence, under the reasons. */
+.today-action { margin-top: 10px; font-size: 14px; line-height: 1.45; }
+/* A fact in plain words, and what the coach reads behind Details. */
+.fact-plain { font-size: 13px; line-height: 1.45; }
+.fact-more summary { cursor: pointer; font-size: 12px; color: var(--accent); list-style: none; }
+.fact-more summary::-webkit-details-marker { display: none; }
+.fact-more summary::before { content: "▸ "; }
+.fact-more[open] > summary::before { content: "▾ "; }
+/* Chart legends as text that wraps; the dashed line drawn as one. */
+.chart-legend .legend-line { width: 14px; height: 0; border-radius: 0; background: none;
+                             border-top: 2px dashed var(--down); vertical-align: 2px; }
+.legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+              margin: 0 3px 0 1px; vertical-align: -1px; }
+.chart-legend .legend-bar { background: var(--accent); opacity: .34; }
+.chart-legend .legend-solid { background: var(--accent); }

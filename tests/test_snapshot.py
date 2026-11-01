@@ -626,7 +626,10 @@ def test_assemble_against_real_store_is_json_serialisable(store, today):
     assert run["activity_id"] == 987 and run["structure"]["label"] == "4×4′"
     assert run["pace_s_per_km"] == pytest.approx(285.7, abs=0.2)
     assert run["zones_s"]["z5"] == 300 and run["has_detail"] is True
-    assert run["band"] == "moderate"                          # 30 % hard, 20 % Z3
+    # 4 x 4 min at 172 bpm, zone 4 from 158: hard by its reps - the count's
+    # reading (`snapshot.run_band`) - though only 30 % of the run was in zones 4-5
+    assert run["band"] == "hard" and "reps" in run["band_why"]
+    assert snapshot.band(run["zones_s"]) == "moderate"         # the zone time alone
     assert snap["zones"]["z4_low"] == 158 and snap["zones"]["as_of_day"] == d.isoformat()
     assert snap["zones"]["lthr_bpm"] == 172 and snap["zones"]["lt_measured_on"] == d.isoformat()
     assert snap["zones"]["max_hr_observed"] == 181 and snap["zones"]["lthr_pct_max_hr"] == 95

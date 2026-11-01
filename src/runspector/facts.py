@@ -47,6 +47,9 @@ class Fact:
     source: str                 # "your history", "Garmin", "the app"
     as_of: str
     change: str | None = None
+    #: The same in plain words, for the You tab - the label, value and evidence
+    #: are what the coach reads (`line`); this is what a person reads first.
+    plain: str | None = None
 
     def line(self) -> str:
         text = f"- {self.label}: {self.value} - {self.evidence}"
@@ -77,6 +80,19 @@ def _grey_bucket(dist: dict) -> str | None:
         return None
     low = int(pct // GREY_STEP) * GREY_STEP
     return f"{low}-{low + GREY_STEP} % in zone 3"
+
+
+def _intensity_plain(d: dict) -> str:
+    """Time in zones in plain words. Time is named by its zone, not as easy /
+    moderate / hard runs: with %-of-max zones the app's easy limit reaches into
+    zone 3, and ten runs held under it are "10 easy" with half their time in
+    zone 3 (`tools.get_intensity_distribution` says the same)."""
+    out = (f"{round(d['easy_pct'])} % of your running time in the last 4 weeks was in the easy "
+           f"zones 1-2 - about 80 % is the usual aim.")
+    z4, z5 = d.get("z4_low"), d.get("z5_low")
+    if z4 and z5 and round(logic.EASY_CAP_OF_Z5 * z5) > 2 * z4 - z5:
+        out += " Your easy limit reaches into zone 3, so part of your zone-3 time was easy running."
+    return out
 
 
 def _running_weeks(store: Store, today: date, weeks: int = 8) -> int:
@@ -146,7 +162,8 @@ def learned(store: Store, today: date, snap: dict | None = None) -> list[Fact]:
             f"easy {round(d0['easy_pct'])} %, zone 3 {round(d0['moderate_pct'])} %, "
             f"hard {round(d0['hard_pct'])} % (zone 5 {round(d0['vo2max_pct'])} %)",
             f"{d0['with_detail']} of {d0['total_runs']} runs with zone detail; a polarised week is "
-            f"~80 % easy", "your history", iso, _change([_grey_bucket(d) for d in dists])))
+            f"~80 % easy", "your history", iso, _change([_grey_bucket(d) for d in dists]),
+            _intensity_plain(d0)))
 
     facts += run_spread(store, today, iso)
 
@@ -159,7 +176,12 @@ def learned(store: Store, today: date, snap: dict | None = None) -> list[Fact]:
                     if vo2.get("last_change_days") is not None else "no new value from a run on record")
         if meas.get("due"):
             evidence += "; a measurement is due"
-        facts.append(Fact("vo2max", "VO2max", value, evidence, "Garmin", iso))
+        plain = "Garmin's estimate of your endurance - higher is fitter."
+        if trend:
+            plain += f" {'Up' if trend > 0 else 'Down'} {abs(trend)} in 8 weeks."
+        if vo2.get("last_change_days") is None:
+            plain += " Garmin updates it from runs; none in the last 8 weeks gave a new value."
+        facts.append(Fact("vo2max", "VO2max", value, evidence, "Garmin", iso, plain=plain))
 
     balances = [store.latest_load_balance(a) for a in anchors]
     b0 = balances[0]
@@ -168,25 +190,33 @@ def learned(store: Store, today: date, snap: dict | None = None) -> list[Fact]:
                           b0["load_balance"].lower().replace("_", " "),
                           f"Garmin's 4-week estimate as of {b0['day']} - its opinion, checked "
                           f"against the minutes above", "Garmin", str(b0["day"]),
-                          _change([(b or {}).get("load_balance") for b in balances])))
+                          _change([(b or {}).get("load_balance") for b in balances]),
+                          "Garmin's own verdict on the mix of your last 4 weeks of training."))
 
     readiness = store.get_readiness(today) or {}
     sig = readiness.get("signals") or {}
     if sig.get("resting_hr_baseline") is not None:
         facts.append(Fact("resting_hr", "Resting HR baseline", f"{sig['resting_hr_baseline']} bpm",
-                          "mean of the 27 nights before the last one", "Garmin", iso))
+                          "mean of the 27 nights before the last one", "Garmin", iso,
+                          plain="Your usual resting heart rate. A morning value clearly above it "
+                                "can mean you have not recovered yet."))
     zones = snap.get("zones") or {}
     if zones.get("max_hr_observed"):
         facts.append(Fact("max_hr", "Highest heart rate seen", f"{zones['max_hr_observed']} bpm",
-                          f"on {zones.get('max_hr_day') or '?'}", "your history", iso))
+                          f"on {zones.get('max_hr_day') or '?'}", "your history", iso,
+                          plain="The highest heart rate your watch measured on a run."))
     if zones.get("source"):
         facts.append(Fact("zones", "Heart-rate zones", zones["source"],
                           f"zone 4 from {zones.get('z4_low')} bpm, zone 5 from "
-                          f"{zones.get('z5_low')} bpm", "Garmin", str(zones.get("as_of_day") or iso)))
+                          f"{zones.get('z5_low')} bpm", "Garmin", str(zones.get("as_of_day") or iso),
+                          plain=(f"From your watch: hard running starts at {zones.get('z4_low')} bpm "
+                                 f"(zone 4), very hard at {zones.get('z5_low')} bpm (zone 5)."
+                                 if zones.get("z4_low") and zones.get("z5_low") else None)))
     return facts
 
 
-_SHAPE_WORDS = (("easy", "easy"), ("middle", "in the middle"), ("hard", "hard"))
+#: One word per kind of run, the run list's too: easy, moderate, hard.
+_SHAPE_WORDS = (("easy", "easy"), ("middle", "moderate"), ("hard", "hard"))
 
 
 def _counts(block: list[str]) -> str:
@@ -198,17 +228,40 @@ def _mostly(block: list[str]) -> str:
     and by count of runs: the app's own week (two hard of four runs) is 50/50
     or 40/60 depending on the weekday the block ends, and easy and hard apart
     every time - by time the hard part is a fifth. "Hardly an easy run" is
-    under a third easy; "mixed" is easy and hard with more than a few runs in
-    the middle."""
+    under a third easy; "mixed" is easy and hard with more than a few moderate
+    runs."""
     n = len(block)
     easy, middle, hard = block.count("easy"), block.count("middle"), block.count("hard")
     if middle > 0.5 * n:
-        return "mostly in the middle"
+        return "mostly moderate"
     if easy < 0.35 * n and hard >= 0.5 * n:
         return "mostly hard - hardly an easy run"
     if middle <= 0.3 * n:
         return "easy and hard kept apart" if hard else "mostly easy"
     return "mixed"
+
+
+#: Each block's reading in plain words, and how the first runs are named.
+_SPREAD_PLAIN = {
+    "mostly moderate": ("Most runs were neither easy nor hard - the most common mistake: easy days "
+                        "too fast, hard days not hard enough.", "mostly moderate"),
+    "mostly hard - hardly an easy run": ("Almost every run was hard, with hardly an easy day to "
+                                         "recover.", "almost all hard"),
+    "easy and hard kept apart": ("Easy runs easy, hard runs hard - the way it should be.",
+                                 "easy and hard kept apart"),
+    "mostly easy": ("Almost every run was easy - hardly a hard session.", "almost all easy"),
+    "mixed": ("", "mixed"),        # said from the kinds counted (`_mixed_words`)
+}
+
+
+def _mixed_words(block: list[str]) -> str:
+    kinds = [w for k, w in _SHAPE_WORDS if k in block]
+    return "A mix of " + (" and ".join(kinds) if len(kinds) < 3 else "easy, moderate and hard") + " runs."
+
+
+def _day_words(iso_day: str) -> str:
+    d = date.fromisoformat(str(iso_day)[:10])
+    return f"{d.day} {d:%b}"
 
 
 def _highest(maxes: list[int]) -> int | None:
@@ -267,9 +320,14 @@ def run_spread(store: Store, today: date, iso: str) -> list[Fact]:
             off,
             "" if missing or off else "more runs with enough zone time are needed - short runs "
                                       "and short reps are not judged") if w)
+        plain = ("Not enough runs with heart-rate zones yet"
+                 + (" - the app is still fetching them from Garmin, 20 per sync." if missing
+                    else " - short runs and short intervals don't count." if not off else ".")
+                 + (f" {left_out} runs are left out: their heart-rate zones look set too low."
+                    if off else ""))
         return [Fact("spread", "How your runs went", "not judged yet",
                      f"{len(judged)} of {total} runs of the last {habits.LOOKBACK_WEEKS} weeks can be "
-                     f"judged by their zone time; {why}", "your history", iso)]
+                     f"judged by their zone time; {why}", "your history", iso, plain=plain)]
     latest = [s for _, s in judged[:SPREAD_BLOCK]]
     earliest = judged[SPREAD_BLOCK:][-SPREAD_BLOCK:]
     first = [s for _, s in earliest]
@@ -292,8 +350,20 @@ def run_spread(store: Store, today: date, iso: str) -> list[Fact]:
         if then and now and abs(then - now) >= ZONE_SHIFT_BPM:
             change += (f"; zone 4 from {then} bpm then, {now} now - part of the change can be "
                        "the zones, not the running")
+    reading = _SPREAD_PLAIN[_mostly(latest)][0] or _mixed_words(latest)
+    plain = f"Your last {len(latest)} runs: {_counts(latest)}. {reading}"
+    if change:
+        plain += (f" Your first runs (from {_day_words(earliest[-1][0]['local_day'])}) were "
+                  f"{_SPREAD_PLAIN[_mostly(first)][1]}.")
+        if "part of the change can be the zones" in change:
+            plain += (" Your heart-rate zones were set differently then, so part of that "
+                      "difference is the setting.")
+    if held:
+        plain += " The comparison with your first runs comes once the app has fetched them."
+    if off:
+        plain += f" {left_out} runs are left out: their heart-rate zones look set too low."
     return [Fact("spread", "How your runs went", f"last {len(latest)}: {_mostly(latest)} - "
-                 f"{_counts(latest)}", evidence, "your history", iso, change)]
+                 f"{_counts(latest)}", evidence, "your history", iso, change, plain)]
 
 
 #: The week settings as facts: setting, fact key, label, how a value reads.

@@ -930,23 +930,23 @@ def check(course: Course) -> list[str]:
     spread = course.spread.get("spread")
     said = f"{spread.value} ({spread.change})" if spread else "nothing"
     if p.habit == "middle":
-        if not spread or "mostly in the middle" not in spread.value:
-            out.append(f"{p.habit}: the runs read as {said!r}, not as mostly in the middle")
+        if not spread or "mostly moderate" not in spread.value:
+            out.append(f"{p.habit}: the runs read as {said!r}, not as mostly moderate")
     elif p.habit == "easy_too_hard":
         # No easy run at all: the middle or the hard side, as the block of 10
         # falls on the week - both say what is missing.
-        if not spread or not any(w in spread.value for w in ("mostly in the middle", "mostly hard")):
+        if not spread or not any(w in spread.value for w in ("mostly moderate", "mostly hard")):
             out.append(f"{p.habit}: the runs read as {said!r}, as if some were easy")
     elif p.habit == "reps_short":
-        # Reps that never got hard read as what they were: in the middle - the
+        # Reps that never got hard read as what they were: moderate - the
         # block is not "easy and hard kept apart" (what a session was MEANT to
         # be takes the app's own session, roadmap 6).
-        if not spread or "in the middle" not in spread.value \
+        if not spread or "moderate" not in spread.value \
                 or "easy and hard kept apart" in spread.value:
             out.append(f"reps_short: the sessions that never got hard do not show: {said!r}")
     elif p.habit == "improver":
-        if not spread or "mostly in the middle" in spread.value \
-                or "mostly in the middle" not in (spread.change or ""):
+        if not spread or "mostly moderate" in spread.value \
+                or "mostly moderate" not in (spread.change or ""):
             out.append(f"improver: the change is not told: {said!r}")
     elif p.habit == "at_cap":
         for day, value in sorted(course.spread_days.items()):
@@ -954,8 +954,8 @@ def check(course: Course) -> list[str]:
                 out.append(f"{day}: a runner held in the app's own easy band reads as {value!r}")
                 break
     elif p.effort == "as_planned" and p.zone_detail and p.compliance == 1.0:
-        if spread and "mostly in the middle" in spread.value:
-            out.append(f"a runner who runs as planned reads as mostly in the middle: {said!r}")
+        if spread and "mostly moderate" in spread.value:
+            out.append(f"a runner who runs as planned reads as mostly moderate: {said!r}")
         # A runner who runs the app's planned weeks keeps easy and hard apart -
         # on every day, wherever the block of 10 runs ends in the week. (Not one
         # who follows the light day by day without a plan: the light gives them

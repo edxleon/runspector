@@ -882,7 +882,7 @@ def run_shape(activity: dict, facts: dict) -> dict | None:
     the count and the list never disagree - with readings on top. A run with
     workout steps is read by its reps: reps that got to zones 4-5, or averaged
     there, make it hard although the warm-up and recoveries are most of its
-    time; reps in zone 3 and above the easy band put it in the middle whatever
+    time; reps in zone 3 and above the easy band make it moderate whatever
     the whole run's average. Fifteen minutes in zones 4-5 make any run
     hard. And a run whose average stayed within the easy band the app itself
     puts on the watch is easy, whatever its zone-3 minutes (with %-of-max zones

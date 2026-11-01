@@ -815,6 +815,11 @@ class Store:
                 "hrv_status": row["hrv_status"], "sleep_score": row["sleep_score"],
                 "body_battery_high": row["body_battery_high"],
                 "resting_hr": row["resting_hr"], "resting_hr_baseline": rhr_baseline,
+                # The difference the rule read, rounded as it rounds it: the page
+                # printed +7 beside a reason saying +6 (6.5, rounded two ways).
+                "resting_hr_delta": (round(row["resting_hr"] - rhr_baseline)
+                                     if row["resting_hr"] is not None and rhr_baseline is not None
+                                     else None),
                 "acwr": tl["acwr"], "acwr_source": tl["acwr_source"],
                 "training_status": row["training_status"],
                 "days_since_hard_workout": days_since_hard,

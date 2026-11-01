@@ -16,10 +16,12 @@ a release note that cites one still points at the right section. The order is th
 
 | # | Gap | For the runner | Effort |
 |---|---|---|---|
+| 24 | Set up and started without a terminal: an app to double-click, the Garmin sign-in on the page, the coach without Claude Code | high (everyone who is not a developer never gets past the install) | high |
 | 15 | The light rests a day on one weak signal, and holds days easy for too little load | high (every morning) | small in code, medium in evals |
 | 22 | What each run did against what it was meant to be - easy kept easy, hard made hard - and how that changes over the months - *the count by zones shipped in v0.8; the session's intent and the fading run open* | high (every run, the most common mistake) | medium to high |
 | 6 | The proposed session matched against the run that followed, and the same reps compared across weeks | high | medium |
 | 16 | A week planned and put on the watch without Claude | high (anyone without Claude Code) | small to medium |
+| 23 | The page and the coach in the athlete's language, German first | high (anyone who does not read English easily) | medium |
 | 5 | A session with your own structure, in your own words | high | medium |
 | 7 | Session sizes from the athlete's own time per weekday and usual run lengths - *short days shipped in v0.6* | medium to high (every planned week) | small |
 | 2 | How a run felt - *the rest of the item is in v0.7* | medium | small |
@@ -384,7 +386,7 @@ and notarising for two systems would be a second product to keep alive.
 (`sync.DETAIL_PER_SYNC` a sync, recent ones first, older runs drawn at random so a run Garmin keeps
 answering empty for never holds the others' places - nothing is ever written off; runs without a heart
 rate are not asked for, and a 404 on the weather or the chart no longer costs a run its zones); each
-run read by its own zone time (`logic.run_shape`: easy, in the middle, or hard - not by Garmin's
+run read by its own zone time (`logic.run_shape`: easy, moderate, or hard - not by Garmin's
 training effect, which called 15 of 17 middling runs of one real month "hard"; a run with workout
 steps by its reps' own heart rate, so a warm-up cannot pull a rep session into the easy band); the
 count over the last 10 such runs, with the earliest block of the window beside it when it reads
@@ -393,7 +395,7 @@ differently and the history is complete, handed to the coach as "How your runs w
 `get_intensity_distribution` says when zone 3 holds the app's own easy band; five runners in the
 simulator who make these mistakes, checked on every day of the last two weeks, and one eval case.
 `zones.md` now says that zone 3 is not the mistake - the missing spread is. Still open: what a
-session was MEANT to be - a rep session that never got hard reads as "in the middle" today, and
+session was MEANT to be - a rep session that never got hard reads as "moderate" today, and
 calling it "short of zone 4" takes the app's own session (6), since laps alone do not tell it from a
 run/walk plan; a tempo inside a run without workout steps, read by the whole run because Garmin keeps
 such a run as one segment; the steady run that fades; and whether the day's rules should read the
@@ -431,15 +433,42 @@ What it takes:
 - **A plausibility check of the zones first**: Garmin's zone bounds against the highest heart rate
   seen and the threshold; zones set from an age formula make every judgement wrong, and the app says
   so instead of judging.
-- **Runners in the simulator who make these mistakes** - every run in the middle, easy runs too hard,
+- **Runners in the simulator who make these mistakes** - every run moderate, easy runs too hard,
   rep sessions too easy, a runner who starts too fast, and one who stops making the first mistake in
   week six: the check has to find what was put in, find nothing in the runner who makes none, and the
   count has to show the change within a few weeks. The simulator's runners are the app's idea of
   the mistakes, so one real history is checked too, before the counts reach a card.
 
+## 23. The page and the coach in the athlete's language
+
+Everything is English: the page, the coach's cards, the reasons for the day's call. Garmin's own
+names come through in the athlete's language beside it ("Krafttraining" in an English list). For a
+runner who does not read English easily, the app is half closed, however plain its words are.
+
+What it takes: the page's words in one table per language (the plain sentences, the ⓘ
+explanations, the labels and buttons), a language setting on the You tab that defaults to the
+browser's, and the coach told to answer in that language. The coach's rules (`skills/*.md`) and
+the tools' output stay English - they are what the model reads, and one set keeps the evals
+meaningful; a card is written in the athlete's language from English facts. The plain sentences
+that the server writes (`facts.Fact.plain`) move into the table with the rest. An eval case per
+language checks that the decision and its numbers survive the translation. German first.
+
+## 24. Set up and started without a terminal
+
+Today a runner installs with `uv` or `pipx`, starts `runspector serve` in a terminal that has to
+stay open, and for the coach installs Claude Code with a shell command and signs in from the
+command line. A person who has never opened a terminal does not get past the first step, and never
+sees the page that was made plain for them.
+
+What it takes, in the order it helps: the app as something to double-click - a small launcher
+that starts the server in the background and opens the page, and a way to start it with the
+computer (macOS first, then Windows); the Garmin sign-in on the page is already there; the coach
+without Claude Code where it can be done (16 plans and files a week without it; a card still
+needs Claude); and Claude Desktop's one-file install (21) for those who use the chat. Signing and
+notarising a launcher is the cost to weigh; a packaged app of its own is not the first step.
+
 ## Smaller
 
-- Cards are written in English whatever the athlete's language; a `RUNSPECTOR_LANG` would be cheap.
 - Strength and cycling count as hard days and keep the quality run off their day and the next
   (good), but get no slot of their own in a planned week; what kind of strength day it was is 18.
 - From four running days a week the planner sets two quality sessions. For a runner with a short
@@ -470,8 +499,8 @@ What it takes:
   "How your runs went" (22) now tells the coach so: "mostly hard - hardly an easy run". A cap of two
   hard days a week in `decide_today` is the likely fix; it is a rule of the light (15), not of 22.
 - The 48-hour rule and the week's count of quality sessions still read Garmin's training effect
-  (`logic.is_hard`): a run in the middle counts as hard there, while "How your runs went" (22) goes by
-  the zones. For a runner who runs everything in the middle the light keeps spacing "hard" days that
+  (`logic.is_hard`): a moderate run counts as hard there, while "How your runs went" (22) goes by
+  the zones. For a runner who runs everything moderate the light keeps spacing "hard" days that
   were not hard. Whether the day's rules should read the zones where a run has them is open.
 - The evals run on a different model and in `--safe-mode`; a green suite is not the shipped coach.
 - The simulator's runners since v0.6: one whose settings contradict themselves, one who says yes to

@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/edxleon/runspector/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runspector/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/runspector)](https://pypi.org/project/runspector/)
-[![evals 37/38](https://img.shields.io/badge/evals-37%2F38-yellow)](evals/RESULTS.md)
+[![evals 36/38](https://img.shields.io/badge/evals-36%2F38-yellow)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![website](https://img.shields.io/badge/website-edxleon.github.io%2Frunspector-blue)](https://edxleon.github.io/runspector/)
 
@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1339 tests, 103 frontend tests and that gate on three operating systems and two Python versions, with every
+1347 tests, 117 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -516,17 +516,18 @@ calendar entry. One athlete, one account, one watch.
 
 ### Roadmap
 
-[docs/roadmap.md](docs/roadmap.md) is the backlog, ordered by what it would do for the runner. First
-on it: a readiness light that does not rest a day on one weak signal, what each run did against
-what it was meant to be (easy kept easy, hard made hard) over the months, the proposed session matched
-against the run that followed - with the same reps compared across weeks -, a week on the watch
-without Claude, and sessions with your own structure. After them: session sizes from your own time
-per weekday, how a run felt, the week's load before you say yes, the kind of a strength day, moving
-a session, a fitness trend beside VO2max, deeper history, a one-file install for Claude Desktop, and
-race preparation towards a goal race. v0.3 made the planner read the history for what comes next,
-v0.6 brought every small item, v0.7 the athlete's own check-in, and v0.8 where each point on a card
-comes from, with a record of what the AI read, and how each run was run - easy, in the middle or
-hard - by its own zones; the reasoning and the order are there.
+[docs/roadmap.md](docs/roadmap.md) is the backlog, ordered by what it would do for the runner. First on
+it: an app that is set up and started without a terminal, a readiness light that does not rest a day on
+one weak signal, what each run did against what it was meant to be (easy kept easy, hard made hard)
+over the months, the proposed session matched against the run that followed - with the same reps
+compared across weeks -, a week on the watch without Claude, the page and the coach in your language,
+and sessions with your own structure. After them: session sizes from your own time per weekday, how a
+run felt, the week's load before you say yes, the kind of a strength day, moving a session, a fitness
+trend beside VO2max, deeper history, a one-file install for Claude Desktop, and race preparation
+towards a goal race. v0.3 made the planner read the history for what comes next, v0.6 brought every
+small item, v0.7 the athlete's own check-in, and v0.8 where each point on a card comes from, with a
+record of what the AI read, and how each run was run - easy, moderate or hard - by its own zones; the
+reasoning and the order are there.
 
 ## License
 
