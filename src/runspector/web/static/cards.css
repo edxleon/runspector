@@ -15,10 +15,11 @@
 .card-meta { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
 /* The verdict is a sentence and may wrap — as a single-line pill it was cut
    off at the right edge. */
-.card-verdict { justify-self: start; display: inline-block; font-size: 12px;
-                font-weight: 600; line-height: 1.4; padding: 3px 10px;
-                border-radius: 999px; color: var(--accent);
-                background: var(--accent-tint); }
+/* The coach's conclusion - what to do - whole, as a block under the headline:
+   as a small pill it read like a tag and was cut after two lines. */
+.card-verdict { display: block; font-size: 14px; font-weight: 500; line-height: 1.45;
+                padding: 8px 10px; border-left: 3px solid var(--accent); border-radius: 6px;
+                color: var(--text); background: var(--accent-tint); }
 .chev { position: absolute; right: 14px; top: 14px; color: var(--muted); font-size: 13px; }
 .card-body { padding: 12px 14px 14px; display: grid; gap: 10px;
              border-top: 1px solid var(--line); }

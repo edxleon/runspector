@@ -232,7 +232,10 @@ function editRows(week, draft, saving) {
 function weekCard(week, facts, ui) {
   const draft = ui && ui.draft;
   if (!week) return "";
-  const head = `<div class="you-head"><div class="subhead">Your week</div>${draft ? ""
+  // Cancel where Edit was: at the bottom only, the way out was not where the
+  // eye looked for it.
+  const head = `<div class="you-head"><div class="subhead">Your usual week</div>${draft
+    ? `<button type="button" class="btn btn-quiet" data-week-cancel ${ui.saving ? "disabled" : ""}>Cancel</button>`
     : `<button type="button" class="btn btn-quiet" data-week-edit>Edit</button>`}</div>`;
   if (draft) {
     const dirty = draft.touched.length || draft.reset.length;
@@ -247,8 +250,8 @@ function weekCard(week, facts, ui) {
       </div></div>`;
   }
   return `<div class="card you-week">${head}
-    <div class="note">What the week plan goes by - read from your history and kept up to date.
-      Not right any more? Edit it: what you set wins.</div>
+    <div class="note">Your usual week, not this one: what the week plan goes by, read from your
+      history and kept up to date. Not right any more? Edit it: what you set wins.</div>
     ${weekStrip(week)}
     <div class="week-rows">${readRows(week, facts)}</div></div>`;
 }

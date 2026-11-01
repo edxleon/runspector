@@ -252,7 +252,8 @@ select.field {
 .day-extra { font-size: 10px; color: var(--muted); }
 .day-run { background: var(--accent-tint); }
 .day-run .day-role { color: var(--accent); }
-.day-long { background: var(--accent-tint); border-color: var(--accent); }
+/* No outline: the green ring means "today" on the Today tab. */
+.day-long { background: var(--accent-tint); }
 .day-long .day-role { color: var(--accent); }
 .day-sport { background: var(--neutral-tint); }
 .day-sport .day-role { color: var(--text); }

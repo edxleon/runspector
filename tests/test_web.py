@@ -1005,3 +1005,18 @@ def test_every_reason_for_the_call_has_its_plain_why():
     table = table[:table.index("};")]
     missing = [r for r in sorted(reasons) if f'"{r}":' not in table]
     assert reasons and not missing, missing
+
+
+def test_the_coachs_conclusion_reaches_the_page_whole(tmp_path, monkeypatch):
+    """The card list cut the verdict at 160 characters - the coach's "what to do"
+    stopped at "The first har…" on the card."""
+    from runspector.web import jobs
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
+    verdict = ("This was a good easy run. Rest today. After 48 days without running, the coming "
+               "week is a return week with easy runs only and no hard session. The first hard "
+               "session comes the week after.")
+    assert len(verdict) > 160
+    jobs.write_card("j-20260101-000000-abcd", {"kind": "train-today", "headline": "h",
+                                               "verdict": verdict, "bullets": ["b"]})
+    (card,) = [c for c in jobs.public_cards() if c["id"] == "j-20260101-000000-abcd"]
+    assert card["verdict"] == verdict

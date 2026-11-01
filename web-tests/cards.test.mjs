@@ -310,17 +310,19 @@ test("renderEvidence: every value from the record is escaped, and it says what i
                /Every number on this card \(2\)/);
 });
 
-test("renderCard: badges in front of the points, the reason under a doubtful one", () => {
+test("renderCard: only the exceptions are marked; the check lives in How this card was made", () => {
   const html = renderCard({
     id: "j-1", kind: "train-today", headline: "h", verdict: "v",
-    bullets: ["HRV <b>38</b>", "sleep 93.4"],
+    bullets: ["HRV <b>38</b>", "sleep 93.4", "I would keep it easy"],
     sources: [{ kind: "measured", from: "today's readiness", called: true, unmatched: [] },
-              { kind: "measured", ref: "get_trend", called: false, unmatched: ["93.4"] }],
+              { kind: "measured", ref: "get_trend", called: false, unmatched: ["93.4"] },
+              { kind: "derived" }],
     evidence: { recorded: true, reads: 1, numbers: 2, in_data: 1, unmatched: [{ where: "point 2", value: "93.4" }] },
   }, { open: true });
-  assert.match(html, /class="src src-measured"[^>]*>your data<\/span> HRV &lt;b&gt;38/);
-  assert.match(html, /src-warn[^>]*>! your data/);
-  assert.match(html, /class="src-why">Marked as your data, but/);
+  // "your data" on nearly every line said nothing: points without a mark are data.
+  assert.match(html, /<p class="card-text">HRV &lt;b&gt;38/);
+  assert.doesNotMatch(html, />your data</);
+  assert.doesNotMatch(html, /class="src-why"/, "the audit line is not in the reading flow");
   assert.match(html, /How this card was made · looked at 1 thing · 1 of 2 numbers found in your data/);
   assert.match(html, /data-evidence="j-1"/);
   const old = renderCard({ id: "j-2", kind: "train-today", headline: "h", bullets: ["b"] }, { open: true });
@@ -381,4 +383,19 @@ test("jobClock: stops when the strip has not been refreshed for a while", async 
                "for 30 s · expect ~50 s");
   // the poll stopped (hidden tab): the job may long be done - the clock stands still
   assert.equal(jobClock("2026-11-01T14:00:00Z", "", t0 + 5_000, t0 + 3_600_000), null);
+});
+
+
+test("renderCard: the coach's conclusion stands whole, as a block", () => {
+  const long = "Rest today. ".repeat(30).trim();
+  const html = renderCard({ id: "j-9", kind: "train-today", headline: "h", verdict: long }, { open: false });
+  assert.match(html, /class="card-verdict"/);
+  assert.ok(html.includes(long), "not cut");
+});
+
+test("renderCard: what changed since the last card sits with the further points", () => {
+  const html = renderCard({ id: "j-8", kind: "train-today", headline: "h", verdict: "v",
+    bullets: ["a", "b", "c"], delta: "Sleep is better than yesterday." }, { open: true });
+  assert.doesNotMatch(html, /<summary>Since the last card<\/summary>/);
+  assert.match(html, /1 more point · what changed since the last card/);
 });

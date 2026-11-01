@@ -222,7 +222,8 @@ export function renderEvidence(rec, det = () => "") {
   if (rec.error) return `<div class="note">The record could not be loaded: ${esc(rec.error)}</div>`;
   const intro = `<p class="note">The coach can reach your data only through this app's own tools
     - no web, no files, nothing else on this computer. This is everything it looked at for this
-    card, in order, with what came back.</p>`;
+    card, in order, with what came back. A point on the card comes from your data unless it is
+    marked "you said" or "coach's reading".</p>`;
   if (!rec.recorded) {
     return `<p class="note">${rec.gone ? "The record of this card is no longer there - its file was deleted."
       : rec.old ? "This card was made before the app kept a record of what the coach looked at."
@@ -389,22 +390,25 @@ export function renderCard(c, opts = {}) {
     // Each point carries where it comes from: a small badge in front, and,
     // when a point says it is your data and the record does not back that,
     // the reason in a line under it.
+    // Only the exceptions are marked - "you said", "coach's reading": "your
+    // data" in front of nearly every point said nothing, and a point without
+    // a mark is data. Whether its numbers are in the data is the check in
+    // "How this card was made", not a line in the middle of the reading.
     const points = list => list.map(({ text, src }) => {
       const b = sourceBadge(src);
-      const badge = b ? `<span class="src src-${esc(b.kind)}${b.warn ? " src-warn" : ""}"
-        title="${esc(b.tip)}">${b.warn ? "! " : ""}${esc(b.label)}</span> ` : "";
-      return `<p class="card-text">${badge}${esc(truncate(textPlain(text), 400))}${
-        b?.warn ? `<span class="src-why">${esc(b.why)}</span>` : ""}</p>`;
+      const badge = b && b.kind !== "measured"
+        ? `<span class="src src-${esc(b.kind)}" title="${esc(b.tip)}">${esc(b.label)}</span> ` : "";
+      return `<p class="card-text">${badge}${esc(truncate(textPlain(text), 400))}</p>`;
     }).join("");
-    const content = points(visible) + (rest.length
-      ? `<details class="card-more" ${det("more")}><summary>${rest.length} more point${
-          rest.length === 1 ? "" : "s"}</summary>${points(rest)}</details>`
+    // The further points and what changed since the last card behind ONE line:
+    // each its own fold-out made four of them on a card.
+    const delta = c.delta ? `<div class="card-delta">${esc(textPlain(c.delta))}</div>` : "";
+    const moreLabel = [rest.length ? `${rest.length} more point${rest.length === 1 ? "" : "s"}` : "",
+                       delta ? (rest.length ? "what changed since the last card" : "What changed since the last card") : ""]
+      .filter(Boolean).join(" · ");
+    const content = points(visible) + (moreLabel
+      ? `<details class="card-more" ${det("more")}><summary>${moreLabel}</summary>${points(rest)}${delta}</details>`
       : "");
-    // Delta, feedback and follow-up each sit behind one line: they are tools,
-    // not content — left open they doubled the height of the card.
-    const delta = c.delta
-      ? `<details class="card-more card-delta-wrap" ${det("delta")}><summary>Since the last card</summary>
-           <div class="card-delta">${esc(textPlain(c.delta))}</div></details>` : "";
     const metaLine = meta.length ? `<div class="card-metaline">${meta.map(esc).join(" · ")}</div>` : "";
     // What the coach looked at - loaded when opened (`install()`), from the
     // card's own record. Cards older than the record have none.
@@ -421,10 +425,10 @@ export function renderCard(c, opts = {}) {
     const value = c.feedback?.value;
     const respond = (fb || fu)
       ? `<details class="card-more card-respond" ${det("respond")}${pending || value ? " open" : ""}>
-           <summary>Feedback${value ? (value === "good" ? " · 👍" : " · 👎") : ""}${
+           <summary>Feedback or a follow-up question${value ? (value === "good" ? " · 👍" : " · 👎") : ""}${
              pending ? " · answer on its way" : ""}</summary>${fb}${fu}</details>` : "";
     body = `<div class="card-body">${content || `<div class="empty-note">No content.</div>`}${
-      proposal}${delta}${evidence}${metaLine}${respond}</div>`;
+      proposal}${evidence}${metaLine}${respond}</div>`;
   }
   // Answers hang visibly BELOW the parent card — even when it is collapsed,
   // otherwise nobody would see that a follow-up question has been answered.
