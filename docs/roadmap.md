@@ -17,6 +17,7 @@ a release note that cites one still points at the right section. The order is th
 | # | Gap | For the runner | Effort |
 |---|---|---|---|
 | 15 | The light rests a day on one weak signal, and holds days easy for too little load | high (every morning) | small in code, medium in evals |
+| 22 | What each run did against what it was meant to be - easy kept easy, hard made hard - and how that changes over the months | high (every run, the most common mistake) | medium to high |
 | 6 | The proposed session matched against the run that followed, and the same reps compared across weeks | high | medium |
 | 16 | A week planned and put on the watch without Claude | high (anyone without Claude Code) | small to medium |
 | 5 | A session with your own structure, in your own words | high | medium |
@@ -32,7 +33,10 @@ a release note that cites one still points at the right section. The order is th
 
 Why this order: the light (15) acts every morning for every runner, and its heaviest word, a rest
 day, can hang on a single cut-off that the app itself grades as having no trial behind it - so it
-comes first although the code is small. Matching the run to its session (6) comes next because it
+comes first although the code is small. What each run did against what it was meant to be (22) comes
+next: running every run at the same middling effort - easy days too hard, hard days too easy - is
+the mistake a coach looks for first in a runner's log, and the app holds the logs. Matching the run
+to its session (6) follows, on the same per-run data, because it
 is how the app learns whether its own prescriptions work, and the exact link turned out to be in
 the data already. A week on the watch without Claude (16) is the difference between a plan and
 none for a runner without Claude Code and changes nothing for one with it, so it follows the two
@@ -373,6 +377,46 @@ session would start the web app's sign-in dialog (`auth.WebLogin`) on 127.0.0.1 
 answer would point there. The `uv` server type is still marked experimental; its state is checked
 before anything is built. An installer of its own (Electron, Tauri) is not on this list: signing
 and notarising for two systems would be a second product to keep alive.
+
+## 22. What each run did, against what it was meant to be
+
+A runner whose every run sits at the same middling heart rate - no easy day really easy, no hard day
+really hard - is the pattern a coach looks for first, and the one runners report most often about
+their own past ("I ran everything at the same pace"). Athletes have been found to run sessions meant to be easy
+harder, and sessions meant to be hard easier, than their coaches intended (Foster and colleagues,
+early 2000s; reported in secondary sources - to be read in the original before it is cited in
+`zones.md`). The app holds every run of the last 26 weeks, but zones and laps only for the last 35
+days (`sync.DETAIL_DAYS`): the history a coach would read is there as averages only. Analysing one
+older run fetches its zones and laps on demand since this item was written; the history as a whole
+does not have them.
+
+What it is not: Z3 is not a mistake in itself. For recreational runners the evidence does not say
+polarised beats pyramidal - one network meta-analysis found recreational athletes gained more VO2max
+with a pyramidal distribution, another found polarised training better for VO2peak overall - so the
+check is about *spread*, not about one zone. Nor is it a score for each run: one run is noise (heat,
+hills, a wrist sensor that lags on a short rep), so a run is never judged alone, only counted.
+
+What it takes:
+- **Zones and laps for every run in the window** - the detail fetch extended from 35 days to the
+  activity list's 26 weeks, at the same 20 runs per sync (four Garmin calls each), newest first.
+- **One check per run, in code** (`logic.py`, pure): what the run was meant to be - the app's own
+  session where the workout id links it (6), else read from its laps (reps or one steady block) -
+  and whether it held: an easy or long run with more than a set share above the easy ceiling; a rep
+  session whose reps of 3 minutes or more never reach their zone; a steady run whose heart rate
+  climbs while its pace falls. Each line graded in `zones.md` (evidence, convention, this app).
+- **The trend, not the verdict**: `facts.py` counts, at read time, over months - "easy runs kept
+  easy: 9 of 12 in the last four weeks; 3 of 14 in the spring" - so the coach gets it before every answer
+  and every card, and it moves with each synced run. Nothing is stored that the runs do not hold:
+  the evaluation is recomputed, so a better rule changes the past too. No text written by the model
+  is kept as memory - what the coach is told about the runner comes from the runs.
+- **A plausibility check of the zones first**: Garmin's zone bounds against the highest heart rate
+  seen and the threshold; zones set from an age formula make every judgement wrong, and the app says
+  so instead of judging.
+- **Runners in the simulator who make these mistakes** - every run in the middle, easy runs too hard,
+  rep sessions too easy, a runner who starts too fast, and one who stops making the first mistake in
+  week six: the check has to find what was put in, find nothing in the runner who makes none, and the
+  count has to show the change within a few weeks. The simulator's runners are the app's idea of
+  the mistakes, so one real history is checked too, before the counts reach a card.
 
 ## Smaller
 

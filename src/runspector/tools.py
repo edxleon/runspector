@@ -620,11 +620,74 @@ def get_intensity_distribution(store: Store, period_days: int = 28) -> str:
     return "\n".join(lines)
 
 
+#: Runs Garmin answered EMPTY for, and when (monotonic), in this process. A run
+#: Garmin is still processing answers empty and has its detail minutes later;
+#: one that never had a heart rate stays empty. Neither is stamped as fetched,
+#: so without this every analysis cost a login and four calls - with it the
+#: run is asked about again after DETAIL_RETRY_S. A failure (login, a 500) is
+#: not kept: after `runspector login` the next analysis tries again.
+_DETAIL_TRIED: dict[int, float] = {}
+DETAIL_RETRY_S = 600
+
+
+def detail_words(outcome: str, det: dict) -> str:
+    """What a detail fetch (`sync.ingest_detail`) brought, in one sentence the
+    coach may pass on - never "no zones" for a request that failed."""
+    from . import garmin
+
+    if set(det.get("unknown") or ()) & set(garmin.DETAIL_ESSENTIAL):
+        return "Garmin did not answer for this run's zones and laps just now - try again later."
+    if outcome == "soft_fail":
+        # A run answered empty: the sync reads that as "not yet", and so does this.
+        return ("Garmin has no zones or laps for this run yet - a fresh upload can take a while; "
+                "ask again later.")
+    zones = any(det.get(f"hr_z{i}_s") is not None for i in range(1, 6))
+    if not zones and not det.get("splits"):
+        return "Garmin has no zones or laps for this activity."
+    return "Zones and laps of this run were fetched from Garmin just now."
+
+
+def _detail_on_demand(store: Store, activity_id: int) -> str:
+    """Fetch ONE run's zones and laps from Garmin when the sync never did - it
+    fetches them only for recent runs (`sync.DETAIL_DAYS`), and "analyze this
+    run" on an older one read a run without either. Four Garmin calls, once per
+    run and process. Never in a card run: the app fetches before the card
+    (`server.App.prefetch_detail`), next to its own sync - two logins at once on
+    one account is what `auto_sync` keeps card runs out of. Never raises."""
+    import os
+
+    from . import garmin, sync
+
+    if os.environ.get("RUNSPECTOR_DEMO") or os.environ.get("RUNSPECTOR_UNATTENDED"):
+        return ""
+    if time.monotonic() - _DETAIL_TRIED.get(activity_id, -DETAIL_RETRY_S) < DETAIL_RETRY_S:
+        return ""
+    if not _sync_lock.acquire(blocking=False):
+        return "A sync is running; this run's zones and laps were not fetched now."
+    try:
+        outcome, det = sync.ingest_detail(store, garmin.login(), int(activity_id))
+    except Exception as exc:  # noqa: BLE001 — any failure is the same answer: say it, go on
+        return f"This run's zones and laps could not be fetched from Garmin ({type(exc).__name__})."
+    finally:
+        _sync_lock.release()
+    if outcome == "soft_fail" and not set(det.get("unknown") or ()) & set(garmin.DETAIL_ESSENTIAL):
+        _DETAIL_TRIED[activity_id] = time.monotonic()
+    return detail_words(outcome, det)
+
+
 def analyze_workout(store: Store, day: str | None = None, activity_id: int | None = None) -> str:
     target, err = _parse_day(day)
     if err:
         return err
     a = store.get_workout_analysis(activity_id=activity_id, day=target)
+    if a is None and target is not None and activity_id is None:
+        # The day's run may simply never have been fetched in detail. Not when
+        # an id was given: that run, or none - never another run of the day.
+        a = store.get_workout_analysis(day=target, require_detail=False)
+    fetched = ""
+    if a is not None and not a["has_detail"]:
+        fetched = _detail_on_demand(store, a["activity_id"])
+        a = store.get_workout_analysis(activity_id=a["activity_id"]) or a
     if a is None:
         return f"No run with detail data found{f' for {day}' if day else ''} (detail not synced yet?)."
 
@@ -686,6 +749,11 @@ def analyze_workout(store: Store, day: str | None = None, activity_id: int | Non
         notes.append(f"a lot of hard time but only {_hm(a['vo2max_s'])} truly in Z5")
     if notes:
         lines += ["", "Rule-based notes: " + "; ".join(notes) + "."]
+    if fetched:
+        lines.insert(1, f"- {fetched}")
+    elif not a["has_detail"]:
+        lines.insert(1, "- No zones or laps are stored for this run (the sync fetches them for "
+                        "recent runs); only its totals are known.")
     return "\n".join(lines)
 
 

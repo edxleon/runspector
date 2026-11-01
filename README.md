@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1245 tests, 101 frontend tests and that gate on three operating systems and two Python versions, with every
+1261 tests, 103 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -517,7 +517,8 @@ calendar entry. One athlete, one account, one watch.
 ### Roadmap
 
 [docs/roadmap.md](docs/roadmap.md) is the backlog, ordered by what it would do for the runner. First
-on it: a readiness light that does not rest a day on one weak signal, the proposed session matched
+on it: a readiness light that does not rest a day on one weak signal, what each run did against
+what it was meant to be (easy kept easy, hard made hard) over the months, the proposed session matched
 against the run that followed - with the same reps compared across weeks -, a week on the watch
 without Claude, and sessions with your own structure. After them: session sizes from your own time
 per weekday, how a run felt, the week's load before you say yes, the kind of a strength day, moving

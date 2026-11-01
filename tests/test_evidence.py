@@ -722,3 +722,269 @@ def test_an_older_cli_without_the_session_flag_still_makes_the_card(tmp_path, mo
     done = agent.run(job, db=str(tmp_path / "t.db"))
     assert done["status"] == "done", done["result_summary"]
     assert (d / "runs.txt").read_text(encoding="utf-8").count("run") == 2
+
+
+# ── a card the model closed with the wrong bracket ───────────────────────────
+
+def test_a_card_whose_list_is_closed_with_a_brace_is_still_read():
+    """Seen on a real analyze-run card: every point starts with a "[...]" mark
+    now, and the model closed the list of points with `}` instead of `]` - the
+    whole, correct card was lost as "no JSON card in the answer"."""
+    answer = ('{"kind":"analyze-run","ref":"1","headline":"A 6.0 km easy run.",'
+              '"bullets":["[measured: analyze_workout] 6.0 km in 39 min","[derived] steady, not intervals."},'
+              '"verdict":"An easy run."}')
+    card, problem = agent.parse_card(answer)
+    assert problem == "" and card["bullets"] == ["[measured: analyze_workout] 6.0 km in 39 min",
+                                                 "[derived] steady, not intervals."]
+    assert card["verdict"] == "An easy run."
+
+
+def test_the_repair_leaves_a_sound_card_and_the_text_inside_its_strings_alone():
+    sound = '{"headline":"h","bullets":["a } b ] c"],"verdict":"v"}'
+    assert agent.parse_card("Here: " + sound)[0] == json.loads(sound)
+    broken = '{"headline":"h","bullets":["[x] keeps } and ] in text"},"verdict":"v"}'
+    assert agent.parse_card(broken)[0]["bullets"] == ["[x] keeps } and ] in text"]
+    assert agent.parse_card("no card here [ } ]")[0] is None
+
+
+# ── "analyze this run" on a run the sync never fetched in detail ────────────
+
+class _ZonesClient:
+    def get_activity_hr_in_timezones(self, _id):
+        return [{"zoneNumber": n, "secsInZone": s, "zoneLowBoundary": lo}
+                for n, s, lo in ((1, 300, 100), (2, 1500, 120), (3, 600, 140), (4, 0, 156), (5, 0, 176))]
+
+    def get_activity_typed_splits(self, _id):
+        return {"splits": [{"type": "RWD_RUN", "duration": 2400, "distance": 6000, "averageHR": 141}]}
+
+    def get_activity_weather(self, _id):
+        return {"temp": 59}
+
+    def get_activity_details(self, _id, **_kw):
+        return {}
+
+
+def test_analysing_an_older_run_fetches_its_zones_and_laps_first(store, today, monkeypatch):
+    """The sync fetches zones and laps for recent runs only; a run from August
+    was analysed without them - "Garmin recorded no splits, no time in zone"."""
+    from conftest import make_activity
+    from runspector import garmin, tools
+
+    aid = 9001
+    store.upsert_activity(make_activity(aid, today, activity_type="running"))
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: _ZonesClient())
+    out = tools.analyze_workout(store, activity_id=aid)
+    assert "fetched from Garmin just now" in out
+    assert "Time in zone: Z1 5m / Z2 25m / Z3 10m" in out
+    assert store.get_workout_analysis(activity_id=aid)["has_detail"] is True
+
+
+def test_a_failed_fetch_is_said_and_the_analysis_still_comes(store, today, monkeypatch):
+    from conftest import make_activity
+    from runspector import garmin, tools
+
+    aid = 9002
+    store.upsert_activity(make_activity(aid, today, activity_type="running"))
+
+    def no_login(*_a, **_k):
+        raise RuntimeError("Garmin login failed")
+    monkeypatch.setattr(garmin, "login", no_login)
+    out = tools.analyze_workout(store, activity_id=aid)
+    assert "could not be fetched from Garmin (RuntimeError)" in out
+    assert out.startswith("Analysis ")
+
+
+def test_the_demo_never_asks_garmin(store, today, monkeypatch):
+    from conftest import make_activity
+    from runspector import garmin, tools
+
+    monkeypatch.setenv("RUNSPECTOR_DEMO", "1")
+    store.upsert_activity(make_activity(9003, today, activity_type="running"))
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: pytest.fail("the demo asked Garmin"))
+    assert "fetched" not in tools.analyze_workout(store, activity_id=9003)
+
+
+# ── the review of the detail fetch ───────────────────────────────────────────
+
+class _Zones500(_ZonesClient):
+    def get_activity_hr_in_timezones(self, _id):
+        raise RuntimeError("500 Server Error")
+
+
+class _NoDetail(_ZonesClient):
+    def get_activity_hr_in_timezones(self, _id):
+        return []
+
+    def get_activity_typed_splits(self, _id):
+        return {"splits": []}
+
+
+def _fresh_tools(monkeypatch):
+    from runspector import tools
+    monkeypatch.delenv("RUNSPECTOR_UNATTENDED", raising=False)
+    monkeypatch.setattr(tools, "_DETAIL_TRIED", {})
+    return tools
+
+
+def test_a_failed_zone_request_is_not_reported_as_a_run_without_zones(store, today, monkeypatch):
+    """A 500 on the zones request read as "Garmin sent no zones or laps for
+    this run" - and the coach passed that on as a measured fact."""
+    from conftest import make_activity
+    from runspector import garmin
+    tools = _fresh_tools(monkeypatch)
+    store.upsert_activity(make_activity(9101, today, activity_type="running"))
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: _Zones500())
+    out = tools.analyze_workout(store, activity_id=9101)
+    assert "did not answer" in out and "no zones or laps" not in out
+
+
+def test_a_run_garmin_has_no_detail_for_is_said_so_and_asked_once(store, today, monkeypatch):
+    from conftest import make_activity
+    from runspector import garmin
+    tools = _fresh_tools(monkeypatch)
+    store.upsert_activity(make_activity(9102, today, activity_type="strength_training"))
+    logins = []
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: logins.append(1) or _NoDetail())
+    out = tools.analyze_workout(store, activity_id=9102)
+    assert "has no zones or laps" in out and "fetched from Garmin just now" not in out
+    tools.analyze_workout(store, activity_id=9102)
+    assert len(logins) == 1, "asked Garmin again for a run it has nothing for"
+
+
+def test_analysing_a_day_fetches_that_days_run(store, today, monkeypatch):
+    """`coach.md` has the model pass a day; that path only ever looked at runs
+    already fetched in detail, so it never fetched anything."""
+    from conftest import make_activity
+    from runspector import garmin
+    tools = _fresh_tools(monkeypatch)
+    store.upsert_activity(make_activity(9103, today, activity_type="running"))
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: _ZonesClient())
+    out = tools.analyze_workout(store, day=today.isoformat())
+    assert "fetched from Garmin just now" in out and "Z2 25m" in out
+
+
+def test_a_card_run_never_logs_in_to_garmin_itself(store, today, monkeypatch):
+    """The app's own sync runs in the server; two logins at once on one account
+    is what `auto_sync` keeps card runs out of. The server fetches first."""
+    from conftest import make_activity
+    from runspector import garmin
+    tools = _fresh_tools(monkeypatch)
+    monkeypatch.setenv("RUNSPECTOR_UNATTENDED", "1")
+    store.upsert_activity(make_activity(9104, today, activity_type="running"))
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: pytest.fail("a card run logged in"))
+    assert "fetched" not in tools.analyze_workout(store, activity_id=9104)
+
+
+def test_the_server_fetches_a_runs_detail_before_its_analyze_card(tmp_path, today, monkeypatch):
+    from conftest import make_activity
+    from runspector import garmin, paths
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
+    app = server.App.__new__(server.App)
+    app.demo, app.token, app._token_fails = False, None, 0
+    app.db_path = str(tmp_path / "t.db")
+    app.store = Store(app.db_path)
+    app.reset_runtime_state()
+    app.store.upsert_activity(make_activity(9105, today, activity_type="running"))
+    monkeypatch.setattr(paths, "garmin_session_present", lambda: True)
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: _ZonesClient())
+    job = {"id": "j-x", "template_id": "analyze-run", "ctx": {"activity_id": "9105"}}
+    app.prefetch_detail(job)
+    assert app.store.get_workout_analysis(activity_id=9105)["has_detail"] is True
+    app.demo = True                                      # the demo never asks Garmin
+    app.store.upsert_activity(make_activity(9106, today, activity_type="running"))
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: pytest.fail("the demo asked Garmin"))
+    app.prefetch_detail({"id": "j-y", "template_id": "analyze-run", "ctx": {"activity_id": "9106"}})
+
+
+def test_an_extra_closing_bracket_does_not_cost_the_cards_proposal():
+    answer = ('{"headline":"h","bullets":["a"],"verdict":"Easy."],'
+              '"proposal":"p-20261101-101010-abcd"}')
+    card, _ = agent.parse_card(answer)
+    assert card["proposal"] == "p-20261101-101010-abcd"
+
+
+# ── found by the fresh reader of the fix ─────────────────────────────────────
+
+def test_a_failed_login_is_tried_again_after_the_athlete_signs_in(store, today, monkeypatch):
+    """The "asked once" memory held failures too: after `runspector login` the
+    same chat never fetched again, and the analysis came without zones."""
+    from conftest import make_activity
+    from runspector import garmin
+    tools = _fresh_tools(monkeypatch)
+    store.upsert_activity(make_activity(9201, today, activity_type="running"))
+    logins = []
+
+    def login(*_a, **_k):
+        logins.append(1)
+        if len(logins) == 1:
+            raise RuntimeError("Garmin login failed")
+        return _ZonesClient()
+    monkeypatch.setattr(garmin, "login", login)
+    assert "could not be fetched" in tools.analyze_workout(store, activity_id=9201)
+    assert "fetched from Garmin just now" in tools.analyze_workout(store, activity_id=9201)
+    assert len(logins) == 2
+
+
+def test_a_run_without_detail_says_so_where_nothing_is_fetched(store, today, monkeypatch):
+    """In a card run nothing is fetched; the analysis showed only dashes."""
+    from conftest import make_activity
+    tools = _fresh_tools(monkeypatch)
+    monkeypatch.setenv("RUNSPECTOR_UNATTENDED", "1")
+    store.upsert_activity(make_activity(9202, today, activity_type="running"))
+    out = tools.analyze_workout(store, day=today.isoformat())
+    assert "No zones or laps are stored for this run" in out
+
+
+def test_the_server_does_not_log_in_while_its_own_sync_still_runs(tmp_path, today, monkeypatch):
+    from conftest import make_activity
+    from runspector import garmin, paths
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
+    app = server.App.__new__(server.App)
+    app.demo, app.token, app._token_fails = False, None, 0
+    app.db_path = str(tmp_path / "t.db")
+    app.store = Store(app.db_path)
+    app.reset_runtime_state()
+    app.store.upsert_activity(make_activity(9203, today, activity_type="running"))
+    monkeypatch.setattr(paths, "garmin_session_present", lambda: True)
+    monkeypatch.setattr(app, "refresh_status", lambda: {"state": "running"})
+    monkeypatch.setattr(server.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: pytest.fail("logged in beside a running sync"))
+    app.prefetch_detail({"id": "j-z", "template_id": "analyze-run", "ctx": {"activity_id": "9203"}})
+
+
+class _EmptyRun(_ZonesClient):
+    def get_activity_hr_in_timezones(self, _id):
+        return []
+
+    def get_activity_typed_splits(self, _id):
+        return {"splits": []}
+
+
+def test_an_empty_answer_for_a_run_means_not_yet_and_is_asked_again_later(store, today, monkeypatch):
+    """Garmin can answer empty for a run it is still processing; the sync takes
+    that as "retry". Said as "has no zones" and kept for the whole process, the
+    run was never asked about again."""
+    from conftest import make_activity
+    from runspector import garmin
+    tools = _fresh_tools(monkeypatch)
+    store.upsert_activity(make_activity(9301, today, activity_type="running"))
+    clients = [_EmptyRun(), _ZonesClient()]
+    logins = []
+    monkeypatch.setattr(garmin, "login", lambda *a, **k: logins.append(1) or clients[len(logins) - 1])
+    clock = [1000.0]
+    monkeypatch.setattr(tools.time, "monotonic", lambda: clock[0])
+    first = tools.analyze_workout(store, activity_id=9301)
+    assert "no zones or laps for this run yet" in first and "for this activity" not in first
+    tools.analyze_workout(store, activity_id=9301)
+    assert len(logins) == 1, "asked again at once"
+    clock[0] += tools.DETAIL_RETRY_S + 1
+    assert "fetched from Garmin just now" in tools.analyze_workout(store, activity_id=9301)
+
+
+def test_an_unknown_activity_id_is_not_answered_with_another_run_of_that_day(store, today, monkeypatch):
+    from conftest import make_activity
+    tools = _fresh_tools(monkeypatch)
+    monkeypatch.setenv("RUNSPECTOR_UNATTENDED", "1")
+    store.upsert_activity(make_activity(9302, today, activity_type="running"))
+    out = tools.analyze_workout(store, day=today.isoformat(), activity_id=999)
+    assert out.startswith("No run with detail data found")

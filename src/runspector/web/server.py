@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
-from .. import __version__, auth, evidence, facts, garmin, logic, onboarding, paths, snapshot, tools
+from .. import __version__, auth, evidence, facts, garmin, logic, onboarding, paths, snapshot, sync, tools
 from .. import profile as profile_mod
 from ..store import Store
 from . import agent, jobs
@@ -718,6 +718,7 @@ class App:
             return
         self.worker_busy = True
         try:
+            self.prefetch_detail(job)
             agent.run(job, db=self.db_path, snapshot_meta={
                 "snapshot_generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
                 "data_through": (d.isoformat() if (d := self.store.latest_day()) else None)},
@@ -731,6 +732,37 @@ class App:
             self.worker_beat = time.monotonic()
         jobs.cleanup()
         jobs.cleanup_cards()
+
+    def prefetch_detail(self, job: dict) -> None:
+        """An analyze-run card on a run the sync never fetched in detail (it does
+        so for recent runs only): its zones and laps first, here, in the process
+        that runs the app's own sync - a card run never logs in to Garmin itself
+        (`tools.auto_sync`). A sync already running is waited for up to a
+        minute - it may bring the detail - and if it still runs, nothing is
+        fetched: two logins at once on one account is what this avoids. Never
+        raises; without the detail the card says so."""
+        ctx = job.get("ctx") if isinstance(job.get("ctx"), dict) else {}
+        if job.get("template_id") != "analyze-run" or self.demo or not paths.garmin_session_present():
+            return
+        try:
+            aid = int(ctx.get("activity_id"))
+        except (TypeError, ValueError):
+            return
+        for _ in range(30):
+            a = self.store.get_workout_analysis(activity_id=aid)
+            if a is None or a["has_detail"]:
+                return
+            if self.refresh_status()["state"] != "running":
+                break
+            time.sleep(2)
+        else:
+            log.info("the sync still runs - %s's detail is not fetched before its card", aid)
+            return
+        try:
+            outcome, det = sync.ingest_detail(self.store, garmin.login(), aid)
+            log.info("detail before the card on %s: %s", aid, tools.detail_words(outcome, det))
+        except Exception:  # the card goes on with what is stored
+            log.warning("could not fetch the detail of %s before its card", aid, exc_info=True)
 
     def _note_worker_error(self, exc: BaseException) -> None:
         """Make it visible instead of only raising into a stderr nobody reads:

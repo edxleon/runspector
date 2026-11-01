@@ -247,9 +247,56 @@ def command(workdir: Path, db: str | None) -> list[str]:
     return cmd
 
 
+def _repair_closers(text: str, *, drop: bool = False) -> str:
+    """The answer with every closing bracket outside a string that does not
+    match the one open turned into it (`["a", "b"}` -> `["a", "b"]`) - or, with
+    `drop`, removed (`"v"],"proposal"` -> `"v","proposal"`, an extra one). Seen
+    on a real card: each point starts with a "[...]" mark, and the model closed
+    the list of points with `}`. Text inside strings is never touched."""
+    out, stack = list(text), []
+    in_str = esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]" and stack:
+            if ch == stack[-1]:
+                stack.pop()
+            elif drop:
+                out[i] = ""
+            else:
+                out[i] = stack.pop()
+    return "".join(out)
+
+
 def parse_card(text: str) -> tuple[dict | None, str]:
     """(card, error). Takes the LAST top-level JSON object in the answer — a model
-    that adds a sentence before it should not cost the athlete the whole run."""
+    that adds a sentence before it should not cost the athlete the whole run.
+    An answer whose brackets do not pair up is read once more with them paired
+    (`_repair_closers`); a sound answer is never changed."""
+    card, problem = _parse_card(text)
+    if card is None:
+        # A wrong closer is either a swapped one or an extra one: both readings,
+        # and the one that keeps more of the card wins (an extra `]` read as a
+        # swap closed the card early and lost its `proposal`).
+        found = [c for c, _ in (_parse_card(r) for r in {_repair_closers(text),
+                                                          _repair_closers(text, drop=True)} - {text})
+                 if c is not None]
+        if found:
+            return max(found, key=len), ""
+    return card, problem
+
+
+def _parse_card(text: str) -> tuple[dict | None, str]:
     candidates = []
     problem = ""
     depth, start = 0, None

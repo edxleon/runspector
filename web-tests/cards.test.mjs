@@ -361,3 +361,22 @@ test("evidenceToggle: a failed load is tried again only when the section is open
   assert.equal(evidenceToggle(false, { error: "server gone" }), "forget", "closed: the next opening tries again");
   assert.equal(evidenceToggle(false, { recorded: true }), null, "a loaded record is kept");
 });
+
+test("runningFor: a running job's clock, by the second", async () => {
+  const { runningFor } = await import("../src/runspector/web/static/cards.js");
+  const t0 = Date.parse("2026-11-01T14:00:00Z");
+  assert.equal(runningFor("2026-11-01T14:00:00Z", t0 + 24_000), "for 24 s");
+  assert.equal(runningFor("2026-11-01T14:00:00Z", t0 + 25_400), "for 25 s");
+  assert.equal(runningFor("2026-11-01T14:00:00Z", t0 + 125_000), "for 2 min 05 s");
+  assert.equal(runningFor("2026-11-01T14:00:00Z", t0 + 3_725_000), "for 1 h 2 min");
+  assert.equal(runningFor("not a time", t0), "");
+});
+
+test("jobClock: stops when the strip has not been refreshed for a while", async () => {
+  const { jobClock } = await import("../src/runspector/web/static/cards.js");
+  const t0 = Date.parse("2026-11-01T14:00:00Z");
+  assert.equal(jobClock("2026-11-01T14:00:00Z", " · expect ~50 s", t0 + 5_000, t0 + 30_000),
+               "for 30 s · expect ~50 s");
+  // the poll stopped (hidden tab): the job may long be done - the clock stands still
+  assert.equal(jobClock("2026-11-01T14:00:00Z", "", t0 + 5_000, t0 + 3_600_000), null);
+});

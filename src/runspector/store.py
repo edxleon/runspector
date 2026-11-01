@@ -632,17 +632,19 @@ class Store:
         }
 
     def get_workout_analysis(self, activity_id: int | None = None,
-                             day: date | None = None) -> dict | None:
+                             day: date | None = None, *, require_detail: bool = True) -> dict | None:
         """Detail of ONE workout. Selection: explicit `activity_id`, else the latest
-        run with detail on `day`, else the latest run with detail at all."""
+        run with detail on `day` (any run that day with `require_detail=False`),
+        else the latest run with detail at all."""
         with self._conn() as conn:
             if activity_id is not None:
                 act = conn.execute("SELECT * FROM activities WHERE activity_id = ?",
                                    (activity_id,)).fetchone()
             elif day is not None:
+                detail = "AND detail_synced_at IS NOT NULL " if require_detail else ""
                 act = conn.execute(
                     f"SELECT * FROM activities WHERE {_RUNNING} AND local_day = ? "
-                    "AND detail_synced_at IS NOT NULL ORDER BY start_time DESC LIMIT 1",
+                    f"{detail}ORDER BY start_time DESC LIMIT 1",
                     (_v(day),)).fetchone()
             else:
                 act = conn.execute(

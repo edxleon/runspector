@@ -70,6 +70,17 @@ export function avgDurationSec(jobs) {
   return d.length ? d.reduce((a, b) => a + b, 0) / d.length : null;
 }
 
+/** "for 24 s" / "for 3 min" - how long an active job has been running, at
+ *  `now`. The strip ticks it every second (`tickJobClocks`); the poll alone
+ *  moved it in 8-second jumps. */
+export function runningFor(startedIso, now = Date.now()) {
+  const s = Math.max(0, (now - new Date(startedIso).getTime()) / 1000);
+  if (!Number.isFinite(s)) return "";
+  if (s < 90) return `for ${Math.floor(s)} s`;
+  if (s < 3600) return `for ${Math.floor(s / 60)} min ${String(Math.floor(s % 60)).padStart(2, "0")} s`;
+  return `for ${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+}
+
 /** "~40 s" / "~2 min" — an expectation, not a clock. */
 export function fmtExpectation(sec) {
   if (sec == null || !Number.isFinite(sec)) return "";
@@ -659,6 +670,10 @@ function install() {
   if (installed || typeof document === "undefined") return;
   installed = true;
 
+  // The clocks of running jobs, every second - in place, no re-render, so an
+  // open log or a half-typed question is never touched.
+  setInterval(tickJobClocks, 1000);
+
   // `toggle` does not bubble — the capture phase on the document catches
   // every <details>.
   document.addEventListener("toggle", ev => {
@@ -838,6 +853,7 @@ export function mountJobs(container, jobs, opts = {}) {
   if (!list.length) { el.innerHTML = ""; return; }
   const active = list.filter(isActive).length;
   const avg = avgDurationSec(jobs);
+  jobsDrawnAt = Date.now();
   el.innerHTML = `<div class="card job-strip">
     <div class="subhead">${esc(opts.title || "Jobs")}${active ? ` · ${active} active` : ""}</div>
     ${list.map(j => renderJobRow(j, avg, opts)).join("")}
@@ -850,9 +866,12 @@ export function mountJobs(container, jobs, opts = {}) {
 function renderJobRow(j, avg, opts) {
   const active = isActive(j);
   const when = active
-    ? (j.started ? "for " + fmtAgo(j.started).replace(/ ago$/, "") : "waiting")
+    ? (j.started ? runningFor(j.started) : "waiting")
     : fmtAgo(j.finished || j.started || j.created);
   const expectation = active && avg ? ` · expect ${fmtExpectation(avg)}` : "";
+  // A running job's clock ticks between polls: `tickJobClocks` rewrites it.
+  const clock = active && j.started
+    ? ` data-job-since="${esc(j.started)}" data-job-expect="${esc(expectation)}"` : "";
   // Active jobs carry their interim message in `note` ("waiting for quota"),
   // failed ones their reason in `result_summary`. For finished jobs that field
   // holds the result — the card shows that, not the strip.
@@ -867,7 +886,7 @@ function renderJobRow(j, avg, opts) {
       <span class="pill ${JOB_PILL[j.status] || "pill-unknown"}">${
         j.status === "running" ? '<span class="live-dot"></span>' : ""}${esc(JOB_LABEL[j.status] || j.status)}</span>
       <span class="job-title">${esc(j.title || j.id)}</span>
-      <span class="note job-when">${esc(when)}${esc(expectation)}</span>
+      <span class="note job-when"${clock}>${esc(when)}${esc(expectation)}</span>
       <button type="button" class="job-log-btn" data-job-log="${esc(j.id)}"
               aria-expanded="${!!lines}">Log</button>
       ${active && opts.cancel !== false
@@ -900,6 +919,24 @@ async function loadEvidence(id, where, focused = false) {
     evidenceCache.set(id, { error: e.message || "server gone" });
   }
   draw();
+}
+
+/** A running job's clock text, or null when the strip was last drawn too long
+ *  ago to trust: the poll stops on a hidden tab, and a job "running for 1 h"
+ *  may long be done - then the clock stands still, as it did before it ticked. */
+export function jobClock(since, expect, drawnAt, now = Date.now()) {
+  if (now - drawnAt > 30_000) return null;
+  return runningFor(since, now) + (expect || "");
+}
+
+let jobsDrawnAt = 0;
+
+function tickJobClocks() {
+  if (document.hidden) return;
+  document.querySelectorAll("[data-job-since]").forEach(el => {
+    const t = jobClock(el.dataset.jobSince, el.dataset.jobExpect, jobsDrawnAt);
+    if (t !== null) el.textContent = t;
+  });
 }
 
 async function loadLog(id) {
