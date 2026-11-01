@@ -716,6 +716,12 @@ def interval_facts(splits: list[dict]) -> dict:
         vals = [r[key] for r in rows if r.get(key) is not None]
         return round(sum(vals) / len(vals), 1) if vals else None
 
+    def _by_time(rows: list[dict]) -> float | None:
+        timed = [(r["avg_hr"], r["duration_s"]) for r in rows
+                 if r.get("avg_hr") is not None and r.get("duration_s")]
+        seconds = sum(d for _, d in timed)
+        return round(sum(h * d for h, d in timed) / seconds, 1) if seconds else None
+
     active = _typed("ACTIVE")
     recovery = _typed("RECOVERY")
     rep_s = _avg(active, "duration_s")
@@ -751,6 +757,9 @@ def interval_facts(splits: list[dict]) -> dict:
         "avg_rep_duration_s": rep_s if structured else None,
         "avg_rep_distance_m": _avg(active, "distance_m"),
         "avg_active_hr": _avg(active, "avg_hr"),
+        # The work's heart rate by TIME: a plain mean over laps let six 20-second
+        # strides outweigh a 30-minute easy step (`run_shape`).
+        "work_hr": _by_time(active),
         "max_active_hr": max((r["max_hr"] for r in active
                               if r.get("max_hr") is not None), default=None),
         "avg_recovery_hr": _avg(recovery, "avg_hr"),
@@ -811,3 +820,139 @@ def run_kind(activity: dict) -> str | None:
     if (activity.get("anaerobic_te") or 0.0) >= QUALITY_ANAEROBIC_TE:
         return "Quality"          # real intensity outranks length as a description
     return "Long Run" if (activity.get("duration_s") or 0) >= LONG_RUN_MIN_SECONDS else "Quality"
+
+
+# ── How each run was run ─────────────────────────────────────────────────────
+#
+# What a run did, read from its own zone time and laps - not from Garmin's
+# training effect, which calls a 40-minute run at a steady middling heart rate
+# "hard" (aerobic TE 3+) although it was neither easy nor hard. The pattern a
+# coach looks for first in a runner's log is exactly that: no spread - every
+# run in the middle, or every run hard. Z3 is not a mistake in itself
+# (zones.md: for recreational runners pyramidal does as well as polarised).
+# One run is never judged alone: the counts are over blocks of runs
+# (`facts.run_spread`). What a run was MEANT to be is not read here: laps alone
+# do not tell a rep session from a run/walk plan - that takes the app's own
+# session (roadmap 6) - so a run is described by what it did.
+
+def band(zones_s: dict | None) -> str | None:
+    """Intensity band of one session — the ONE source: hard from 40 % Z4–5,
+    moderate from 30 % Z3 or 20 % hard, else easy. It colours the run list and
+    the week strip, and `run_shape` counts by it."""
+    if not isinstance(zones_s, dict):
+        return None
+    z = {k: float(zones_s.get(k) or 0) for k in ("z1", "z2", "z3", "z4", "z5")}
+    total = sum(z.values())
+    if total <= 0:
+        return None
+    hard = (z["z4"] + z["z5"]) / total
+    if hard >= 0.4:
+        return "hard"
+    if z["z3"] / total >= 0.3 or hard >= 0.2:
+        return "moderate"
+    return "easy"
+
+
+#: The top of the easy band the app puts on the watch, as a share of the zone-5
+#: floor (`planning.easy_cap`). With Garmin's %-of-max zones it sits inside
+#: zone 3, so a run held in it is easy whatever its zone-3 minutes say.
+EASY_CAP_OF_Z5 = 0.83
+#: A run with less zone time than this, or zone time covering less than half
+#: its duration (watch off the wrist, a run cut short), is not judged.
+SHAPE_MIN_ZONE_S = 10 * 60
+#: Hard without reps also: this much time in zones 4-5 (a tempo or threshold
+#: block in a longer run, which the band's 40 % misses).
+TEMPO_MIN_S = 15 * 60
+#: Reps shorter than this are not judged by heart rate - a wrist sensor lags a
+#: minute behind a rep's start (zones.md).
+REP_JUDGED_S = 180
+#: ACTIVE laps longer than this are blocks of a run (a marathon-pace finish, a
+#: workout's main part), not reps.
+REP_MAX_S = 10 * 60
+#: Reps that reached their zone: at least this much time in zones 4-5 in all,
+#: and this share of the rep time.
+REPS_HARD_MIN_S = 5 * 60
+REPS_HARD_SHARE = 0.40
+
+
+def run_shape(activity: dict, facts: dict) -> dict | None:
+    """What one run did: `{"shape", "why"}` or None when it cannot be judged.
+
+    By the run list's own `band`: easy, `middle` (its "moderate") or hard - so
+    the count and the list never disagree - with readings on top. A run with
+    workout steps is read by its reps: reps that got to zones 4-5, or averaged
+    there, make it hard although the warm-up and recoveries are most of its
+    time; reps in zone 3 and above the easy band put it in the middle whatever
+    the whole run's average. Fifteen minutes in zones 4-5 make any run
+    hard. And a run whose average stayed within the easy band the app itself
+    puts on the watch is easy, whatever its zone-3 minutes (with %-of-max zones
+    that band reaches into zone 3) - for a rep session only if its reps stayed
+    there too. A tempo inside a run WITHOUT steps is read by the whole run:
+    Garmin's laps of such a run are one segment, nothing tells the block apart.
+    `facts` is `interval_facts` of its laps; reps under REP_JUDGED_S that did
+    not get there are not judged."""
+    if not is_running(activity):
+        return None
+    zones = {f"z{i}": activity.get(f"hr_z{i}_s") or 0 for i in range(1, 6)}
+    total = sum(zones.values())
+    duration = activity.get("duration_s") or 0
+    if total < SHAPE_MIN_ZONE_S or (duration and total < 0.5 * duration):
+        return None
+    hard = zones["z4"] + zones["z5"]
+    z4_low, z5_low = activity.get("hr_z4_low"), activity.get("hr_z5_low")
+    cap = round(EASY_CAP_OF_Z5 * z5_low) if z5_low else None
+    steps = bool(facts.get("has_intervals"))
+    rep_s = facts.get("avg_rep_duration_s") or 0
+    rep_hr = facts.get("work_hr") if steps else None
+    if steps:
+        work = rep_s * (facts.get("rep_count") or 0)
+        if rep_s <= REP_MAX_S and hard >= REPS_HARD_MIN_S and (not work or hard >= REPS_HARD_SHARE * work):
+            return {"shape": "hard", "why": f"reps with {round(hard / 60)} min in zones 4-5"}
+        if rep_hr and z4_low and rep_hr >= z4_low:
+            return {"shape": "hard", "why": f"work steps averaged {round(rep_hr)} bpm, zone 4 from {z4_low}"}
+        if rep_s < REP_JUDGED_S:
+            return None                  # short reps: the wrist cannot tell either way
+    b = band(zones)
+    if b == "hard" or hard >= TEMPO_MIN_S:
+        return {"shape": "hard", "why": f"{round(hard / 60)} min in zones 4-5"}
+    # Above the easy band AND in zone 3: with threshold-based zones the cap lies
+    # in zone 2, and steps in zone 2 above it are still easy (the run list says
+    # so). Garmin's %-of-max and %-of-reserve zones are evenly spaced, so zone 3
+    # starts a zone's width below zone 4.
+    top = max(cap, 2 * z4_low - z5_low) if cap and z4_low else cap
+    if rep_hr and top and rep_hr > top:
+        return {"shape": "middle",
+                "why": f"work steps averaged {round(rep_hr)} bpm - zone 3, above the easy band"}
+    avg = activity.get("avg_hr")
+    within_cap = bool(cap and avg and avg <= cap and hard < 0.10 * total
+                      and (not steps or (rep_hr and rep_hr <= cap)))
+    if b == "easy" or within_cap:
+        why = (f"average {avg} bpm, within the easy band" if b != "easy"
+               else f"{round(100 * zones['z3'] / total)} % zone 3")
+        return {"shape": "easy", "why": why}
+    return {"shape": "middle",
+            "why": f"{round(100 * zones['z3'] / total)} % zone 3, {round(100 * hard / total)} % zones 4-5"}
+
+
+def zones_cover(dist: dict) -> bool:
+    """Enough of a window's runs carry zone time to judge its split: at least 5
+    and 60 % of them. Only runs with zone detail carry seconds, so below that
+    the shares describe whichever runs have arrived - a verdict on the sync, not
+    on the training. `get_intensity_distribution`'s notes and the intensity
+    fact's change line (`facts._grey_bucket`) ask this one function."""
+    return dist.get("with_detail", 0) >= max(5, round(0.6 * dist.get("total_runs", 0)))
+
+
+def zones_plausible(z4_low: int | None, highest_hr: int | None) -> str | None:
+    """None unless a run's zone 4 starts far below the heart rate the runner
+    reaches - zones set too low (an age formula, an old max) make every run read
+    harder than it was. Zones set too HIGH cannot be told from the data: a runner
+    who never runs hard never reaches zone 5, which is the very pattern the
+    count is for (zones.md: this app). `highest_hr` is robust to a spike
+    (`facts.run_spread` passes the top tenth of the runs' maxima)."""
+    if not highest_hr or not z4_low:
+        return None
+    if z4_low < 0.75 * highest_hr:
+        return (f"zone 4 starts at {z4_low} bpm, low for a highest heart rate of {highest_hr}: "
+                "runs read harder than they were")
+    return None

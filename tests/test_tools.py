@@ -259,7 +259,7 @@ def test_intensity_distribution_no_runs(store, today):
 def test_intensity_distribution_no_detail_hint(store, today):
     store.upsert_activity(make_activity(1, today))          # run without detail
     out = tools.get_intensity_distribution(store, period_days=28)
-    assert "No zone detail yet" in out and "1 run(s) without detail" in out
+    assert "No zone detail for" in out and "1 run(s) without heart-rate zones" in out
 
 
 def test_intensity_distribution_grey_zone_notes(store, today):

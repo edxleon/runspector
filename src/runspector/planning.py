@@ -139,7 +139,7 @@ def easy_cap(zones: dict | None) -> tuple[dict | None, str | None]:
     formula. Returns `(target, assumption)`."""
     z = zones or {}
     if z.get("z5_low"):
-        hi = round(0.83 * z["z5_low"])
+        hi = round(logic.EASY_CAP_OF_Z5 * z["z5_low"])
         return hr_bpm(hi - 18, hi), None
     if z.get("lthr_bpm"):
         hi = round(0.85 * z["lthr_bpm"])

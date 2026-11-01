@@ -22,7 +22,7 @@ import os
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from . import habits, paths
+from . import habits, logic, paths
 from . import profile as profile_mod
 from .store import Store
 
@@ -31,6 +31,11 @@ CHANGE_WEEKS = 8
 #: Zone 3 share is tracked in steps of this many percent: 41 % and 43 % are
 #: the same pattern, 32 % and 45 % are not.
 GREY_STEP = 10
+#: How each run was run is counted in blocks of this many judged runs - not in
+#: weeks: a runner back after seven weeks off has empty weeks, not empty runs.
+SPREAD_BLOCK = 10
+#: Fewer judged runs than this in a block say nothing - nor make a change line.
+SPREAD_MIN = 6
 
 
 @dataclass(frozen=True)
@@ -64,8 +69,11 @@ def _change(series: list) -> str | None:
 
 
 def _grey_bucket(dist: dict) -> str | None:
+    """The window's zone-3 share in steps - None until enough of its runs carry
+    zones (`logic.zones_cover`): while the history fetch fills older windows at
+    random, a few arrived runs made the change line come and go between syncs."""
     pct = dist.get("moderate_pct")
-    if pct is None or not dist.get("with_detail"):
+    if pct is None or not logic.zones_cover(dist):
         return None
     low = int(pct // GREY_STEP) * GREY_STEP
     return f"{low}-{low + GREY_STEP} % in zone 3"
@@ -132,13 +140,15 @@ def learned(store: Store, today: date, snap: dict | None = None) -> list[Fact]:
 
     dists = [store.get_intensity_distribution(a - timedelta(days=27), a) for a in anchors]
     d0 = dists[0]
-    if d0.get("with_detail"):
+    if d0.get("with_detail") and d0.get("easy_pct") is not None:
         facts.append(Fact(
             "intensity", "Intensity (28 days)",
             f"easy {round(d0['easy_pct'])} %, zone 3 {round(d0['moderate_pct'])} %, "
             f"hard {round(d0['hard_pct'])} % (zone 5 {round(d0['vo2max_pct'])} %)",
             f"{d0['with_detail']} of {d0['total_runs']} runs with zone detail; a polarised week is "
             f"~80 % easy", "your history", iso, _change([_grey_bucket(d) for d in dists])))
+
+    facts += run_spread(store, today, iso)
 
     vo2 = snap.get("vo2max") or {}
     if vo2.get("current") is not None:
@@ -174,6 +184,116 @@ def learned(store: Store, today: date, snap: dict | None = None) -> list[Fact]:
                           f"zone 4 from {zones.get('z4_low')} bpm, zone 5 from "
                           f"{zones.get('z5_low')} bpm", "Garmin", str(zones.get("as_of_day") or iso)))
     return facts
+
+
+_SHAPE_WORDS = (("easy", "easy"), ("middle", "in the middle"), ("hard", "hard"))
+
+
+def _counts(block: list[str]) -> str:
+    return ", ".join(f"{n} {word}" for k, word in _SHAPE_WORDS if (n := block.count(k)))
+
+
+def _mostly(block: list[str]) -> str:
+    """The block in three words - what a change line compares. It reads SPREAD,
+    and by count of runs: the app's own week (two hard of four runs) is 50/50
+    or 40/60 depending on the weekday the block ends, and easy and hard apart
+    every time - by time the hard part is a fifth. "Hardly an easy run" is
+    under a third easy; "mixed" is easy and hard with more than a few runs in
+    the middle."""
+    n = len(block)
+    easy, middle, hard = block.count("easy"), block.count("middle"), block.count("hard")
+    if middle > 0.5 * n:
+        return "mostly in the middle"
+    if easy < 0.35 * n and hard >= 0.5 * n:
+        return "mostly hard - hardly an easy run"
+    if middle <= 0.3 * n:
+        return "easy and hard kept apart" if hard else "mostly easy"
+    return "mixed"
+
+
+def _highest(maxes: list[int]) -> int | None:
+    """The heart rate the runner reaches: the top tenth of the runs' maxima,
+    never the single highest - a chest-strap or wrist spike or two decides
+    nothing."""
+    if len(maxes) < 3:
+        return None
+    ranked = sorted(maxes, reverse=True)
+    return ranked[max(1, len(ranked) // 10)]
+
+
+#: Zone 4 moved by this much between the first and the last runs: the change
+#: line names it.
+ZONE_SHIFT_BPM = 3
+
+
+def _zone4(block: list[tuple[dict, str]]) -> int | None:
+    """The zone-4 floor most of a block's runs were recorded with (the median)."""
+    lows = sorted(r["hr_z4_low"] for r, _ in block if r.get("hr_z4_low"))
+    return lows[len(lows) // 2] if lows else None
+
+
+def run_spread(store: Store, today: date, iso: str) -> list[Fact]:
+    """How each run was run (`logic.run_shape`), counted over the last
+    SPREAD_BLOCK judged runs, with the earliest block of the window beside it
+    when it reads differently - two blocks that never share a run - so the
+    coach sees both the habit and its change, and the count moves with every
+    synced run. Each run is judged by its own zone bounds; a run whose zone 4
+    was set far too low (`logic.zones_plausible`) is left out, not judged.
+    Recomputed on every read: a better rule changes the past too, and nothing
+    the model wrote is kept."""
+    start = today - timedelta(days=habits.LOOKBACK_WEEKS * 7 - 1)     # the sync's window
+    runs = store.runs_with_zones(start, today)
+    highest = _highest([r["max_hr"] for r in runs if r.get("max_hr")])
+    judged: list[tuple[dict, str]] = []
+    left_out = 0
+    for r in runs:
+        if logic.zones_plausible(r.get("hr_z4_low"), highest):
+            left_out += 1
+            continue
+        shape = logic.run_shape(r, logic.interval_facts(r["splits"]))
+        if shape:
+            judged.append((r, shape["shape"]))
+    off = (f"{left_out} runs left out - their zone 4 was set far below the heart rate you reach "
+           "(set max heart rate or threshold in Garmin Connect for the runs to come; runs "
+           "already recorded keep their zone times)") if left_out else ""
+    # Runs whose zones the sync still fetches - 20 a sync, older ones at random.
+    missing = store.count_runs(start, today, waiting=True)
+    total = store.count_runs(start, today)
+    if len(judged) < SPREAD_MIN:
+        if not total:
+            return []
+        why = "; ".join(w for w in (
+            f"the sync fetches zones and laps for {missing} more, 20 a sync" if missing else "",
+            off,
+            "" if missing or off else "more runs with enough zone time are needed - short runs "
+                                      "and short reps are not judged") if w)
+        return [Fact("spread", "How your runs went", "not judged yet",
+                     f"{len(judged)} of {total} runs of the last {habits.LOOKBACK_WEEKS} weeks can be "
+                     f"judged by their zone time; {why}", "your history", iso)]
+    latest = [s for _, s in judged[:SPREAD_BLOCK]]
+    earliest = judged[SPREAD_BLOCK:][-SPREAD_BLOCK:]
+    first = [s for _, s in earliest]
+    # Not while the older runs still come in at random: "your first runs" would
+    # be whichever had arrived, and the line would come and go between syncs.
+    # A few that never arrive (deleted on Garmin since) hold nothing back.
+    held = missing * 10 > total and len(judged) + missing >= SPREAD_BLOCK + SPREAD_MIN
+    evidence = ("each run by its zone time, as the run list colours it (hard also for 15 minutes in "
+                "zones 4-5; a rep session by its reps; easy within the app's easy band); never one "
+                "run alone" + (f"; {off}" if off else "")
+                + (f"; your first runs are compared once the sync has most of the {missing} more "
+                   f"run{'s' if missing != 1 else ''}" if held else ""))
+    change = None
+    if not held and len(first) >= SPREAD_MIN and _mostly(first) != _mostly(latest):
+        change = f"your first runs from {earliest[-1][0]['local_day']}: {_mostly(first)} - {_counts(first)}"
+        # Each run is read by the zones it was recorded with; when Garmin moved
+        # them in between (its max-HR detection only goes up), part of this
+        # change is the setting, not the running - said, not hidden.
+        then, now = _zone4(earliest), _zone4(judged[:SPREAD_BLOCK])
+        if then and now and abs(then - now) >= ZONE_SHIFT_BPM:
+            change += (f"; zone 4 from {then} bpm then, {now} now - part of the change can be "
+                       "the zones, not the running")
+    return [Fact("spread", "How your runs went", f"last {len(latest)}: {_mostly(latest)} - "
+                 f"{_counts(latest)}", evidence, "your history", iso, change)]
 
 
 #: The week settings as facts: setting, fact key, label, how a value reads.

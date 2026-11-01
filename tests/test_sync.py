@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import garminconnect as garmin_errors
 import pytest
 
 from conftest import TODAY, FakeGarmin, make_activity
@@ -14,11 +15,12 @@ from runspector.sync import SyncReport
 ZONES = [{"zoneNumber": n, "secsInZone": 100 * n, "zoneLowBoundary": 90 + 20 * n} for n in range(1, 6)]
 
 
-def raw_activity(activity_id: int, day: date, *, type_key: str = "running", hour: int = 8) -> dict:
+def raw_activity(activity_id: int, day: date, *, type_key: str = "running", hour: int = 8,
+                 avg_hr: int | None = 140) -> dict:
     return {"activityId": activity_id, "startTimeGMT": f"{day.isoformat()} {hour:02d}:00:00",
             "activityType": {"typeKey": type_key}, "activityName": f"act-{activity_id}",
             "distance": 6000, "duration": 2400, "activityTrainingLoad": 100,
-            "aerobicTrainingEffect": 3.0}
+            "aerobicTrainingEffect": 3.0, "averageHR": avg_hr}
 
 
 class SyncClient(FakeGarmin):
@@ -133,12 +135,16 @@ def test_activity_window_is_wider_than_the_day_window(store, today, monkeypatch)
     assert rep.activities == 1
 
 
-def test_zone_detail_is_fetched_for_the_last_35_days_only(store, today):
-    """Four calls per workout: half a year of them would be 700 calls."""
+def test_zone_detail_reaches_back_past_35_days_for_runs_only(store, today):
+    """Four calls per workout: half a year at once would be 700 calls, so a sync
+    fetches DETAIL_PER_SYNC of them (`test_the_history_fetch_keeps_to_twenty_a_sync`)
+    - recent ones of any kind first, then older RUNS, in random order."""
     client = SyncClient(activities=[raw_activity(1, today - timedelta(days=10)),
-                                    raw_activity(2, today - timedelta(days=100))])
+                                    raw_activity(2, today - timedelta(days=100)),
+                                    raw_activity(3, today - timedelta(days=100), type_key="cycling",
+                                                 hour=17)])
     _run(store, client, days=1)
-    assert client.detail_calls == [1]
+    assert client.detail_calls == [1, 2]
 
 
 # ── hard errors ──────────────────────────────────────────────────────────────
@@ -514,3 +520,116 @@ def test_a_weigh_in_on_a_day_without_a_watch_row_is_kept(store, today):
         _weigh(old, 73000.0), _weigh(today, 71400.0)]}))
     assert store.get_day(old) is None, "a weigh-in still makes no day row"
     assert store.weights(old, today) == [(old, 73.0), (today, 71.4)]
+
+
+# ── zones and laps for the whole history ─────────────────────────────────────
+
+def test_runs_of_the_whole_window_get_their_zones_after_the_recent(store, today):
+    """Zones and laps were fetched for the last 35 days only, so the history a
+    coach reads first - how each run was run - had averages only. Older RUNS are
+    fetched now too, after everything recent and within the same 20 a sync."""
+    acts = [raw_activity(1, today - timedelta(days=1)),
+            raw_activity(2, today - timedelta(days=60)),
+            raw_activity(3, today - timedelta(days=90)),
+            raw_activity(4, today - timedelta(days=61), type_key="strength_training", hour=17)]
+    client = SyncClient(activities=acts, hr_zones=ZONES)
+    _run(store, client)
+    assert client.detail_calls[0] == 1 and sorted(client.detail_calls[1:]) == [2, 3], \
+        "recent first, then older runs - no older gym session"
+
+
+def test_runs_that_keep_failing_never_block_the_others(store, today):
+    """Never stamped, a run Garmin answers empty for is asked again - drawn at
+    random among the older runs, so a few such runs never hold the places of
+    all the others."""
+    class EmptyFor(SyncClient):
+        """Runs 100-119 (the newest of them) have neither zones nor laps."""
+        def get_activity_hr_in_timezones(self, activity_id):
+            self.detail_calls.append(activity_id)
+            return [] if activity_id < 120 else ZONES
+
+        def get_activity_typed_splits(self, activity_id):
+            return {"splits": []} if activity_id < 120 else super().get_activity_typed_splits(activity_id)
+    acts = [raw_activity(100 + i, today - timedelta(days=40 + i)) for i in range(40)]
+    for _ in range(8):
+        _run(store, EmptyFor(activities=acts))
+    left = store.activities_missing_detail(today - timedelta(days=200), today, limit=100)
+    assert sorted(left) == list(range(100, 120)), "every run that has zones got them"
+
+
+def test_the_history_fetch_keeps_to_twenty_a_sync(store, today):
+    acts = [raw_activity(i, today - timedelta(days=40 + i)) for i in range(1, 30)]
+    client = SyncClient(activities=acts, hr_zones=ZONES)
+    _run(store, client)
+    assert len(client.detail_calls) == 20
+
+
+def test_a_run_deleted_on_garmin_does_not_stop_every_sync(store, today):
+    """A 404 for one run counted as fatal: every sync exited 3 and the
+    history fetch stopped at it. It is that run's answer, kept for a retry."""
+    class Deleted(SyncClient):
+        def get_activity_hr_in_timezones(self, activity_id):
+            self.detail_calls.append(activity_id)
+            if activity_id == 1:
+                raise garmin_errors.GarminConnectNotFoundError("404 Not Found")
+            return super().get_activity_hr_in_timezones(activity_id)
+    acts = [raw_activity(1, today - timedelta(days=50)), raw_activity(2, today - timedelta(days=60))]
+    rep, _ = _run(store, Deleted(activities=acts, hr_zones=ZONES))
+    assert rep.exit_code == 0 and rep.details == 1 and rep.soft_errors >= 1
+    assert store.activities_missing_detail(today - timedelta(days=200), today) == [1]   # never stamped
+
+
+def test_no_detail_is_asked_for_after_garmin_said_stop(store, today):
+    class Stopped(SyncClient):
+        def get_activities(self, start, limit):
+            raise garmin._FATAL[-1]("429")
+    store.upsert_activity(make_activity(1, today - timedelta(days=60)))
+    client = Stopped()
+    _run(store, client)
+    assert client.detail_calls == []
+
+
+def test_recent_and_older_together_stay_within_twenty(store, today):
+    acts = ([raw_activity(i, today - timedelta(days=i)) for i in range(1, 6)]
+            + [raw_activity(100 + i, today - timedelta(days=40 + i)) for i in range(29)])
+    client = SyncClient(activities=acts, hr_zones=ZONES)
+    _run(store, client)
+    assert len(client.detail_calls) == sync.DETAIL_PER_SYNC
+    assert client.detail_calls[:5] == [1, 2, 3, 4, 5], "recent ones first"
+
+
+def test_older_runs_without_a_heart_rate_are_not_asked_for(store, today):
+    """A run entered by hand or run without a sensor has no zones to fetch, is
+    never stamped, and was asked for again on every sync of half a year."""
+    acts = [raw_activity(1, today - timedelta(days=60), avg_hr=None),
+            raw_activity(2, today - timedelta(days=61))]
+    client = SyncClient(activities=acts, hr_zones=ZONES)
+    _run(store, client)
+    assert client.detail_calls == [2]
+
+
+@pytest.mark.parametrize("endpoint", ["get_activity_weather", "get_activity_details"])
+def test_a_404_on_weather_or_the_chart_keeps_the_zones(store, today, endpoint):
+    """Weather and the details chart are extras; a 404 on one of them threw
+    away the zones already fetched, and the run was asked again for good."""
+    def not_found(*a, **kw):
+        raise garmin_errors.GarminConnectNotFoundError("404 Not Found")
+    client = SyncClient(activities=[raw_activity(1, today - timedelta(days=60))], hr_zones=ZONES)
+    setattr(client, endpoint, not_found)
+    rep, _ = _run(store, client)
+    assert rep.details == 1 and store.activities_missing_detail(today - timedelta(days=200), today) == []
+    (run,) = store.runs_with_zones(today - timedelta(days=200), today)
+    assert any(run[f"hr_z{i}_s"] for i in range(1, 6)), "the zones are stored"
+
+
+def test_a_recent_run_without_a_heart_rate_still_gets_its_laps(store, today):
+    """The no-heart-rate skip reached the recent window too: a GPS run with the
+    sensor off has laps, was fetched and stamped before, and now was never asked
+    for - the day's "which hard session" read "unknown, sync and ask again" for
+    seven days, and no sync could clear it. Only the history fetch skips them."""
+    laps = {"splits": [{"type": "RWD_RUN", "duration": 2400, "distance": 6000}]}
+    client = SyncClient(activities=[raw_activity(1, today - timedelta(days=2), avg_hr=None)],
+                        hr_zones=[], typed_splits=laps)
+    _run(store, client)
+    assert client.detail_calls == [1]
+    assert store.activities_missing_detail(today - timedelta(days=30), today) == []

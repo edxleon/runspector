@@ -17,7 +17,7 @@ a release note that cites one still points at the right section. The order is th
 | # | Gap | For the runner | Effort |
 |---|---|---|---|
 | 15 | The light rests a day on one weak signal, and holds days easy for too little load | high (every morning) | small in code, medium in evals |
-| 22 | What each run did against what it was meant to be - easy kept easy, hard made hard - and how that changes over the months | high (every run, the most common mistake) | medium to high |
+| 22 | What each run did against what it was meant to be - easy kept easy, hard made hard - and how that changes over the months - *the count by zones done for v0.8; the session's intent and the fading run open* | high (every run, the most common mistake) | medium to high |
 | 6 | The proposed session matched against the run that followed, and the same reps compared across weeks | high | medium |
 | 16 | A week planned and put on the watch without Claude | high (anyone without Claude Code) | small to medium |
 | 5 | A session with your own structure, in your own words | high | medium |
@@ -380,6 +380,25 @@ and notarising for two systems would be a second product to keep alive.
 
 ## 22. What each run did, against what it was meant to be
 
+*Done for v0.8 (on `main`, not yet released):* zones and laps for every run of the 26 weeks
+(`sync.DETAIL_PER_SYNC` a sync, recent ones first, older runs drawn at random so a run Garmin keeps
+answering empty for never holds the others' places - nothing is ever written off; runs without a heart
+rate are not asked for, and a 404 on the weather or the chart no longer costs a run its zones); each
+run read by its own zone time (`logic.run_shape`: easy, in the middle, or hard - not by Garmin's
+training effect, which called 15 of 17 middling runs of one real month "hard"; a run with workout
+steps by its reps' own heart rate, so a warm-up cannot pull a rep session into the easy band); the
+count over the last 10 such runs, with the earliest block of the window beside it when it reads
+differently and the history is complete, handed to the coach as "How your runs went"
+(`facts.run_spread`); runs whose zone 4 was set far too low left out (`logic.zones_plausible`);
+`get_intensity_distribution` says when zone 3 holds the app's own easy band; five runners in the
+simulator who make these mistakes, checked on every day of the last two weeks, and one eval case.
+`zones.md` now says that zone 3 is not the mistake - the missing spread is. Still open: what a
+session was MEANT to be - a rep session that never got hard reads as "in the middle" today, and
+calling it "short of zone 4" takes the app's own session (6), since laps alone do not tell it from a
+run/walk plan; a tempo inside a run without workout steps, read by the whole run because Garmin keeps
+such a run as one segment; the steady run that fades; and whether the day's rules should read the
+zones too ("Smaller").
+
 A runner whose every run sits at the same middling heart rate - no easy day really easy, no hard day
 really hard - is the pattern a coach looks for first, and the one runners report most often about
 their own past ("I ran everything at the same pace"). Athletes have been found to run sessions meant to be easy
@@ -445,6 +464,19 @@ What it takes:
 - The data directory is made 0700 only when the app creates it, and `runspector doctor` warns
   about a wider one; the database file itself takes the umask. 0600 on creation would hold where
   someone widened the directory.
+- A runner who follows the light day by day without a planned week gets HARD on three or four days
+  a week ("GO, week below share" - the share of minutes above easy is not reached, and nothing caps
+  the number of hard days, though `zones.md` says 1-2). The simulator's `free_runner` shows it, and
+  "How your runs went" (22) now tells the coach so: "mostly hard - hardly an easy run". A cap of two
+  hard days a week in `decide_today` is the likely fix; it is a rule of the light (15), not of 22.
+- The 48-hour rule and the week's count of quality sessions still read Garmin's training effect
+  (`logic.is_hard`): a run in the middle counts as hard there, while "How your runs went" (22) goes by
+  the zones. For a runner who runs everything in the middle the light keeps spacing "hard" days that
+  were not hard. Whether the day's rules should read the zones where a run has them is open.
 - The evals run on a different model and in `--safe-mode`; a green suite is not the shipped coach.
 - The simulator's runners since v0.6: one whose settings contradict themselves, one who says yes to
   the week three days late; since v0.7 one whose calf hurts after one quality session in seven.
+- A run deleted on Garmin stays in the store: Garmin answers its detail with 404, which is that run's
+  answer and no longer stops the sync, so it is asked again on every sync and counts as still
+  coming in "How your runs went" (22). Taking a run out once it is missing from Garmin's own list for
+  its day would end that, without deleting anything on a 404 alone.

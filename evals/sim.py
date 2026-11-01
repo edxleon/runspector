@@ -94,6 +94,14 @@ class Persona:
     #: over the morning it is gone; every other time they forget, and the
     #: word runs out on its own.
     pain_after_hard: float = 0.0
+    #: How the runner RUNS what they run - the mistakes a coach looks for in a
+    #: log (roadmap 22): `as_planned`; `middle` (every run mostly in zone 3);
+    #: `easy_too_hard` (easy and long runs a third in zone 3); `reps_short`
+    #: (rep sessions that never reach zone 4); `improver` (`middle` until week 6 of the
+    #: course, then as planned); `at_cap` (easy runs at the top of the app's
+    #: own easy band - half in zone 3 with %-of-max zones, still easy). The app
+    #: plans as always; the zones it reads back are the runner's.
+    habit: str = "as_planned"
 
 
 PERSONAS = {p.name: p for p in (
@@ -124,7 +132,35 @@ PERSONAS = {p.name: p for p in (
     Persona("late_yes", applies_late=3, seed=14),
     # A calf that hurts the day after one quality session in seven - HRV stays green.
     Persona("pain_after_quality", pain_after_hard=0.15, seed=15),
+    # The mistakes inside the runs (roadmap 22).
+    Persona("middle_runner", habit="middle", seed=16),
+    Persona("easy_too_hard", habit="easy_too_hard", seed=17),
+    Persona("reps_short", habit="reps_short", seed=18),
+    Persona("improver", habit="improver", seed=19),
+    # Runs every easy run at the top of the easy band the app puts on the watch:
+    # with %-of-max zones half of it reads as zone 3 - still easy.
+    Persona("at_the_cap", habit="at_cap", seed=20),
 )}
+
+#: The course week from which `improver` runs as planned.
+IMPROVES_IN_WEEK = 6
+
+
+def _habit_zones(habit: str, kind: str, minutes: int, z4: int, z5: int,
+                 week: int) -> tuple[int, int, int, int, int]:
+    """Seconds in zones 1-5 of a run of `kind`, as a runner with `habit` runs it."""
+    s = minutes * 60
+    if habit == "improver":
+        habit = "middle" if week < IMPROVES_IN_WEEK else "as_planned"
+    if habit == "middle":
+        return 0, int(0.25 * s), int(0.65 * s), int(0.10 * s) if kind in HARD else int(0.05 * s), 0
+    if habit == "easy_too_hard" and kind in ("easy", "long"):
+        return 0, int(0.62 * s), int(0.33 * s), int(0.05 * s), 0
+    if habit == "reps_short" and kind in HARD:
+        return 0, int(0.55 * s), int(0.40 * s), int(0.05 * s), 0
+    if habit == "at_cap" and kind in ("easy", "long"):
+        return 0, int(0.47 * s), int(0.53 * s), 0, 0
+    return 0, max(0, s - z4 - z5), 0, z4, z5
 
 
 @dataclass
@@ -167,6 +203,12 @@ class Course:
     days: list[DayRecord] = field(default_factory=list)
     #: Every run, history included: day -> Run.
     runs: dict = field(default_factory=dict)
+    #: What the coach is told about how the runs went, on the last day
+    #: (`facts.run_spread`): key -> Fact.
+    spread: dict = field(default_factory=dict)
+    #: The same, read every day of the last two weeks: day -> the value line.
+    #: The block of 10 runs slides over the week, so one day says little.
+    spread_days: dict = field(default_factory=dict)
 
 
 def jittered(p: Persona, seed: int) -> Persona:
@@ -333,23 +375,26 @@ class _Sim:
 
         z4, z5 = _shape(kind, minutes)
         detail = self.p.zone_detail
-        run = Run(kind, minutes, z4, z5, detail)
+        zones = _habit_zones(self.p.habit, kind, minutes, z4, z5, (day - START).days // 7)
+        run = Run(kind, minutes, zones[3], zones[4], detail)
         self.aid += 1
         anaerobic = 2.6 if kind == "vo2max" else 1.0 if kind in ("threshold", "tempo") else 0.4
         self.store.upsert_activity(Activity(
             activity_id=self.aid,
             start_time=datetime(day.year, day.month, day.day, 7, 0, tzinfo=UTC),
             activity_type="running", name=f"{kind} run", distance_m=minutes * 180,
-            duration_s=minutes * 60, avg_hr=150, max_hr=170,
+            duration_s=minutes * 60, max_hr=170,
+            # At the cap: the top of the easy band (0.83 x the zone-5 floor of 172).
+            avg_hr=140 if self.p.habit == "at_cap" and kind in ("easy", "long") else 150,
             training_load=int(minutes * _LOAD_PER_MIN.get(kind, 1.5)),
             aerobic_te=3.6 if kind in HARD or kind == "tempo" else 2.6, anaerobic_te=anaerobic))
         splits = _splits(self.aid, kind, minutes, z4, z5)
         if splits:
             self.store.upsert_activity_splits(self.aid, splits)
         if detail:
-            easy = max(0, minutes * 60 - z4 - z5)
+            # The laps are the planned structure; the zones are how it was run.
             self.store.update_activity_detail(self.aid, {
-                "hr_z1_s": 0, "hr_z2_s": easy, "hr_z3_s": 0, "hr_z4_s": z4, "hr_z5_s": z5,
+                **{f"hr_z{i}_s": v for i, v in enumerate(zones, start=1)},
                 "hr_z4_low": 156, "hr_z5_low": 172, "splits": []})
         self.loads[day] = minutes * _LOAD_PER_MIN.get(kind, 1.5)
         self.course.runs[day] = run
@@ -510,7 +555,7 @@ def simulate(persona: Persona, weeks: int = 16, probe=None) -> Course:
     `probe(day, store)` is called at the end of every day - after the run,
     before a Sunday's planning - with the clock still on that day: the place
     to render what the tools say at a moment of the course."""
-    from runspector import paths, snapshot, tools
+    from runspector import facts, paths, snapshot, tools
 
     real_today = paths.today
     old_home = os.environ.get("RUNSPECTOR_HOME")
@@ -550,7 +595,13 @@ def simulate(persona: Persona, weeks: int = 16, probe=None) -> Course:
                     probe(day, sim.store)
                 if day.weekday() == 6 and persona.plans_week:
                     rec.week = sim.plan_week(day)
+                if i >= weeks * 7 - 14:
+                    spread = {f.key: f for f in facts.run_spread(sim.store, day, day.isoformat())}
+                    if "spread" in spread:
+                        sim.course.spread_days[day] = spread["spread"].value
                 sim.course.days.append(rec)
+            sim.course.spread = {f.key: f for f in facts.run_spread(
+                sim.store, clock[0], clock[0].isoformat())}
             return sim.course
         finally:
             paths.today = real_today
@@ -742,13 +793,18 @@ def check(course: Course) -> list[str]:
     # takes sessions out - and after each pain the light reads the lower load
     # as ACWR < 0.8 and keeps the days easy until the ratio recovers, which
     # `docs/roadmap.md` item 15 names.)
+    # (One who runs it in the wrong zones never reaches zone 5 whatever the plan
+    # said - for them the app's side is checked: the VO2max session is still
+    # there every two weeks; roadmap 22 counts what they made of it.)
     if p.effort == "as_planned" and p.compliance == 1.0 and p.zone_detail and not p.applies_late \
             and not p.pain_after_hard:
+        def stimulus(run) -> bool:
+            return run.z5_s >= 180 if p.habit == "as_planned" else run.kind == "vo2max"
         for r in days[14:]:
             if any(r.day - timedelta(days=k) in event_days or back_in(r.day - timedelta(days=k))
                    for k in range(21)):
                 continue
-            if not any(run.z5_s >= 180 for d, run in course.runs.items()
+            if not any(stimulus(run) for d, run in course.runs.items()
                        if 0 <= (r.day - d).days < 14):
                 out.append(f"{r.day}: no Z5 session in the last 14 days")
                 break
@@ -869,6 +925,46 @@ def check(course: Course) -> list[str]:
         if not ahead <= placed:
             out.append(f"{r.day}: days still ahead were not put on the watch: "
                        f"{sorted(ahead - placed)}")
+
+    # How the runs went (roadmap 22): what was put in is what the coach is told.
+    spread = course.spread.get("spread")
+    said = f"{spread.value} ({spread.change})" if spread else "nothing"
+    if p.habit == "middle":
+        if not spread or "mostly in the middle" not in spread.value:
+            out.append(f"{p.habit}: the runs read as {said!r}, not as mostly in the middle")
+    elif p.habit == "easy_too_hard":
+        # No easy run at all: the middle or the hard side, as the block of 10
+        # falls on the week - both say what is missing.
+        if not spread or not any(w in spread.value for w in ("mostly in the middle", "mostly hard")):
+            out.append(f"{p.habit}: the runs read as {said!r}, as if some were easy")
+    elif p.habit == "reps_short":
+        # Reps that never got hard read as what they were: in the middle - the
+        # block is not "easy and hard kept apart" (what a session was MEANT to
+        # be takes the app's own session, roadmap 6).
+        if not spread or "in the middle" not in spread.value \
+                or "easy and hard kept apart" in spread.value:
+            out.append(f"reps_short: the sessions that never got hard do not show: {said!r}")
+    elif p.habit == "improver":
+        if not spread or "mostly in the middle" in spread.value \
+                or "mostly in the middle" not in (spread.change or ""):
+            out.append(f"improver: the change is not told: {said!r}")
+    elif p.habit == "at_cap":
+        for day, value in sorted(course.spread_days.items()):
+            if not value.startswith(("last 10: easy and hard kept apart", "last 10: mostly easy")):
+                out.append(f"{day}: a runner held in the app's own easy band reads as {value!r}")
+                break
+    elif p.effort == "as_planned" and p.zone_detail and p.compliance == 1.0:
+        if spread and "mostly in the middle" in spread.value:
+            out.append(f"a runner who runs as planned reads as mostly in the middle: {said!r}")
+        # A runner who runs the app's planned weeks keeps easy and hard apart -
+        # on every day, wherever the block of 10 runs ends in the week. (Not one
+        # who follows the light day by day without a plan: the light gives them
+        # three or four hard days a week - docs/roadmap.md "Smaller".)
+        if p.plans_week:
+            for day, value in sorted(course.spread_days.items()):
+                if not value.startswith(("last 10: easy and hard kept apart", "last 10: mostly easy")):
+                    out.append(f"{day}: a runner who runs the planned weeks reads as {value!r}")
+                    break
 
     # A plateau gets measured: a steady block within six weeks of the course.
     if p.vo2_response == "plateau":

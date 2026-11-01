@@ -974,7 +974,7 @@ def test_an_empty_answer_for_a_run_means_not_yet_and_is_asked_again_later(store,
     clock = [1000.0]
     monkeypatch.setattr(tools.time, "monotonic", lambda: clock[0])
     first = tools.analyze_workout(store, activity_id=9301)
-    assert "no zones or laps for this run yet" in first and "for this activity" not in first
+    assert "sent no zones or laps for this run" in first and "for this activity" not in first
     tools.analyze_workout(store, activity_id=9301)
     assert len(logins) == 1, "asked again at once"
     clock[0] += tools.DETAIL_RETRY_S + 1

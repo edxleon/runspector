@@ -212,16 +212,52 @@ class Store:
                 [[getattr(s, c) for c in cols] for s in splits],
             )
 
-    def activities_missing_detail(self, start: date, end: date, limit: int = 20) -> list[int]:
+    def activities_missing_detail(self, start: date, end: date, limit: int = 20, *,
+                                  running_only: bool = False, shuffled: bool = False) -> list[int]:
         """Newest first and capped, so one run never fires hundreds of per-activity
-        Garmin calls."""
+        Garmin calls. `running_only` (the history fetch, `sync.DETAIL_PER_SYNC`):
+        runs WITH a heart rate only - one entered by hand has nothing to fetch, is
+        never stamped and would hold a place on every sync; once Garmin lists a
+        heart rate for it, it is fetched. The recent window keeps every activity:
+        a GPS run with the sensor off still has laps, and the day's rules wait
+        for its detail (`logic.next_stimulus`). `shuffled`: in random order."""
+        runs = f"AND {_RUNNING} AND avg_hr IS NOT NULL " if running_only else ""
+        order = "RANDOM()" if shuffled else "start_time DESC"
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT activity_id FROM activities WHERE detail_synced_at IS NULL "
-                "AND local_day BETWEEN ? AND ? ORDER BY start_time DESC LIMIT ?",
+                f"AND local_day BETWEEN ? AND ? {runs}ORDER BY {order} LIMIT ?",
                 (_v(start), _v(end), limit),
             ).fetchall()
         return [r["activity_id"] for r in rows]
+
+    def runs_with_zones(self, start: date, end: date) -> list[dict]:
+        """Runs fetched in detail in [start, end], newest first, each with its laps
+        under `splits` - what `facts.run_spread` judges run by run."""
+        with self._conn() as conn:
+            acts = conn.execute(
+                f"SELECT * FROM activities WHERE {_RUNNING} AND detail_synced_at IS NOT NULL "
+                "AND local_day BETWEEN ? AND ? ORDER BY start_time DESC",
+                (_v(start), _v(end))).fetchall()
+            laps: dict[int, list[dict]] = {}
+            ids = [a["activity_id"] for a in acts]
+            for i in range(0, len(ids), 500):      # SQLite's limit on bound variables
+                chunk = ids[i:i + 500]
+                for r in conn.execute(
+                        f"SELECT * FROM activity_splits WHERE activity_id IN ({','.join('?' * len(chunk))}) "
+                        "ORDER BY activity_id, split_index", chunk):
+                    laps.setdefault(r["activity_id"], []).append(dict(r))
+        return [{**dict(a), "splits": laps.get(a["activity_id"], [])} for a in acts]
+
+    def count_runs(self, start: date, end: date, *, waiting: bool = False) -> int:
+        """Runs in [start, end]; `waiting`: only those whose zones the sync still
+        fetches (a heart rate, no detail yet - what `activities_missing_detail`
+        hands the history fetch)."""
+        cond = "AND avg_hr IS NOT NULL AND detail_synced_at IS NULL " if waiting else ""
+        with self._conn() as conn:
+            return conn.execute(f"SELECT COUNT(*) AS n FROM activities WHERE {_RUNNING} {cond}"
+                                "AND local_day BETWEEN ? AND ?", (_v(start), _v(end))).fetchone()["n"]
+
 
     def activity_type(self, activity_id: int) -> str | None:
         with self._conn() as conn:
@@ -612,9 +648,17 @@ class Store:
                 "SELECT COALESCE(SUM(hr_z1_s),0) AS z1, COALESCE(SUM(hr_z2_s),0) AS z2, "
                 "COALESCE(SUM(hr_z3_s),0) AS z3, COALESCE(SUM(hr_z4_s),0) AS z4, "
                 "COALESCE(SUM(hr_z5_s),0) AS z5, "
-                "COALESCE(SUM(CASE WHEN detail_synced_at IS NOT NULL THEN 1 END),0) AS with_detail, "
+                # Runs WITH zone time: a run stamped without any (answered empty,
+                # entered by hand) is no coverage for a judgement on the split.
+                "COALESCE(SUM(CASE WHEN COALESCE(hr_z1_s,0)+COALESCE(hr_z2_s,0)+COALESCE(hr_z3_s,0)"
+                "+COALESCE(hr_z4_s,0)+COALESCE(hr_z5_s,0) > 0 THEN 1 END),0) AS with_detail, "
                 f"COUNT(*) AS total_runs FROM activities WHERE {_RUNNING} "
                 "AND local_day BETWEEN ? AND ?", (_v(start), _v(end))).fetchone()
+            # The zone bounds the latest of those runs was recorded with.
+            bounds = conn.execute(
+                f"SELECT hr_z4_low, hr_z5_low FROM activities WHERE {_RUNNING} "
+                "AND hr_z4_low IS NOT NULL AND hr_z5_low IS NOT NULL AND local_day BETWEEN ? AND ? "
+                "ORDER BY start_time DESC LIMIT 1", (_v(start), _v(end))).fetchone()
         z = {k: int(row[k]) for k in ("z1", "z2", "z3", "z4", "z5")}
         total = sum(z.values())
         easy, moderate, hard = z["z1"] + z["z2"], z["z3"], z["z4"] + z["z5"]
@@ -629,6 +673,8 @@ class Store:
             "easy_pct": pct(easy), "moderate_pct": pct(moderate),
             "hard_pct": pct(hard), "vo2max_pct": pct(z["z5"]),
             "with_detail": int(row["with_detail"]), "total_runs": int(row["total_runs"]),
+            "z4_low": bounds["hr_z4_low"] if bounds else None,
+            "z5_low": bounds["hr_z5_low"] if bounds else None,
         }
 
     def get_workout_analysis(self, activity_id: int | None = None,

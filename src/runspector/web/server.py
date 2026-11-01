@@ -193,7 +193,7 @@ class App:
         """What the app knows about the athlete, for the card prompt. A failure
         here costs the card its context, never the card."""
         try:
-            return facts.render_text(facts.cached(self.store, paths.today()), 1200)
+            return facts.render_text(facts.cached(self.store, paths.today()), ATHLETE_FACTS_CAP)
         except Exception as exc:  # noqa: BLE001 — context, not a precondition
             log.warning("athlete facts unavailable: %s: %s", type(exc).__name__, exc)
             return ""
@@ -1020,6 +1020,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "card_id": m.group(1)})
             return self._json({"error": "unknown card"}, 404)
         return self._json({"error": "not found"}, 404)
+
+
+#: The athlete's facts in a card prompt. 1,200 held them until "How your runs
+#: went" came: it pushed the zones out, the bounds the count is judged by.
+#: Well inside the athlete block's own budget (`agent.ATHLETE_CAP`).
+ATHLETE_FACTS_CAP = 1800
 
 
 def public_evidence(doc: dict) -> dict:

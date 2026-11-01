@@ -585,8 +585,8 @@ def get_intensity_distribution(store: Store, period_days: int = 28) -> str:
     if d["total_s"] == 0:
         if d["total_runs"] == 0:
             return f"No runs {start} .. {end}."
-        return (f"No zone detail yet for {start} .. {end} ({d['total_runs']} run(s) without "
-                f"detail - the next sync picks them up).")
+        return (f"No zone detail for {start} .. {end} ({d['total_runs']} run(s) without heart-rate "
+                f"zones - the sync fetches them for runs that have them).")
     lines = [
         f"Intensity distribution {start} .. {end} ({d['with_detail']}/{d['total_runs']} runs with detail)",
         "",
@@ -600,8 +600,7 @@ def get_intensity_distribution(store: Store, period_days: int = 28) -> str:
     # interval session used to produce a flat "little true easy running (17.5%)"
     # — a verdict on the backfill, dressed as a verdict on the athlete. No
     # judgement below the sample gate; the numbers above still stand.
-    covered = d["with_detail"] >= max(5, round(0.6 * d["total_runs"]))
-    if not covered:
+    if not logic.zones_cover(d):
         lines += ["", f"No judgement on the distribution: only {d['with_detail']} of "
                       f"{d['total_runs']} runs carry zone detail, so these shares describe "
                       f"those runs, not the training."]
@@ -617,6 +616,17 @@ def get_intensity_distribution(store: Store, period_days: int = 28) -> str:
         notes.append(f"hardly any time in Z5 ({d['vo2max_pct']}%)")
     lines += ["", ("Rule-based notes: " + "; ".join(notes) + ".") if notes
               else "Looks polarised (mostly easy, focused hard work)."]
+    # With %-of-max (or %-of-reserve) zones the easy cap the app puts on the
+    # watch lies inside zone 3: the runner who keeps to it was told "a lot of
+    # grey zone" here while the profile counted the same runs easy. Garmin's
+    # zones are evenly spaced there, so zone 3 starts a zone's width below zone 4.
+    z4, z5 = d.get("z4_low"), d.get("z5_low")
+    if notes and z4 and z5:
+        cap, z3_from = round(logic.EASY_CAP_OF_Z5 * z5), 2 * z4 - z5
+        if cap > z3_from:
+            lines.append(f"Zone 3 starts near {z3_from} bpm, under the easy cap of {cap} bpm the app "
+                         "puts on easy runs: an easy run held near the cap counts as Z3 time here. "
+                         "How each run was run is 'How your runs went' (get_athlete_profile).")
     return "\n".join(lines)
 
 
@@ -638,9 +648,9 @@ def detail_words(outcome: str, det: dict) -> str:
     if set(det.get("unknown") or ()) & set(garmin.DETAIL_ESSENTIAL):
         return "Garmin did not answer for this run's zones and laps just now - try again later."
     if outcome == "soft_fail":
-        # A run answered empty: the sync reads that as "not yet", and so does this.
-        return ("Garmin has no zones or laps for this run yet - a fresh upload can take a while; "
-                "ask again later.")
+        # A run answered empty: the sync keeps asking, and so does this, later.
+        return ("Garmin sent no zones or laps for this run - if it was uploaded just now it may "
+                "still be processing it; ask again later.")
     zones = any(det.get(f"hr_z{i}_s") is not None for i in range(1, 6))
     if not zones and not det.get("splits"):
         return "Garmin has no zones or laps for this activity."
@@ -752,8 +762,8 @@ def analyze_workout(store: Store, day: str | None = None, activity_id: int | Non
     if fetched:
         lines.insert(1, f"- {fetched}")
     elif not a["has_detail"]:
-        lines.insert(1, "- No zones or laps are stored for this run (the sync fetches them for "
-                        "recent runs); only its totals are known.")
+        lines.insert(1, "- No zones or laps are stored for this run yet (the sync fetches them, "
+                        "20 runs a sync); only its totals are known.")
     return "\n".join(lines)
 
 

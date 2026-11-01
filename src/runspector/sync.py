@@ -37,6 +37,13 @@ FIRST_SYNC_DAYS = 30
 #: intensity reads and the ACWR fallback need about 28 days.
 ACTIVITY_LIST_DAYS = habits.LOOKBACK_WEEKS * 7
 DETAIL_DAYS = 35
+#: How many workouts a sync fetches zones and laps for (four Garmin calls each):
+#: everything of the last DETAIL_DAYS first, then older RUNS of the activity
+#: window (roadmap 22). Those in RANDOM order: a run Garmin answers empty or
+#: with an error for is never stamped and asked again later - newest first, a
+#: few of them would hold the places of all the others for good; drawn at
+#: random, every run gets its turn and none is written off.
+DETAIL_PER_SYNC = 20
 ZONE_KEYS = ("hr_z1_s", "hr_z2_s", "hr_z3_s", "hr_z4_s", "hr_z5_s")
 
 
@@ -197,7 +204,15 @@ def run(store: Store, client, days: int = DEFAULT_DAYS, *, say=print) -> SyncRep
 
     # Detail backfill: four Garmin calls per workout → capped, newest first,
     # gentle backoff. The rest is picked up by the next run.
-    for aid in store.activities_missing_detail(detail_since, today, limit=20):
+    # Not after Garmin said stop (the activity fetch above was fatal): one more
+    # call into a 429 only deepens it.
+    todo = [] if rep.fatal else store.activities_missing_detail(detail_since, today,
+                                                                 limit=DETAIL_PER_SYNC)
+    if not rep.fatal and len(todo) < DETAIL_PER_SYNC and since < detail_since:
+        todo += store.activities_missing_detail(since, detail_since - timedelta(days=1),
+                                                limit=DETAIL_PER_SYNC - len(todo),
+                                                running_only=True, shuffled=True)
+    for aid in todo:
         try:
             outcome, _ = ingest_detail(store, client, aid)
             if outcome == "soft_fail":
@@ -210,6 +225,14 @@ def run(store: Store, client, days: int = DEFAULT_DAYS, *, say=print) -> SyncRep
             rep.details += 1
             time.sleep(0.5)
         except Exception as exc:  # noqa: BLE001 — one workout's detail, not the sync
+            if "NotFound" in type(exc).__name__:
+                # Garmin's 404 is about THIS workout (deleted there since it was
+                # listed, or not processed yet), not about Garmin - the library
+                # files it under its connection errors, which stopped every sync
+                # at the same run. Asked again later, never stamped.
+                rep.soft_errors += 1
+                say(f"  . detail {aid}: not found on Garmin - retry next sync")
+                continue
             rep.errors += 1
             if garmin.is_fatal(exc):   # do not keep hammering a throttled Garmin
                 say(f"  ! detail backfill aborted ({type(exc).__name__}) - rest next sync")

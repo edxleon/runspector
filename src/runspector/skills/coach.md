@@ -36,6 +36,8 @@ Derive weekdays from the ISO date by calculation; when unsure, write the date.
 
 *Hard* means: aerobic TE ≥ 3.0 **or** anaerobic TE ≥ 2.0 — the definition behind the `last hard workout N day(s) ago` line. A run tagged Long Run counts as hard for spacing even below that.
 
+That tag is about **spacing**, not about how the run was run: the labels in `get_recent_activities` (Quality, Long Run) come from the training effect and a run's length, and a 40-minute run at a steady middling heart rate gets "Quality". Never call a run a quality session, or a week hard, because of the label. How the runs were run is "How your runs went" in the athlete's profile, read from each run's zone time; where the two disagree, say that the labels count the runs as hard for the 48 hours while their zone time was in the middle.
+
 The day after a hard session is easy or rest, **also on GO**: the light measures systemic recovery, not muscles and tendons. Hard stimuli sit 48 hours apart. The **day before the long run** is not a day for a hard session either — the long run is the week's other hard session, and it is run on tired legs otherwise. Exception: the athlete's plan schedules back-to-back hard days on purpose (peak block) — then the plan wins, and you say so.
 
 ## The athlete's plan
@@ -101,7 +103,7 @@ Before saying "no hard work since …" or "too little VO2max stimulus":
 2. The stimulus type must match the claim: a tempo/threshold run counts as hard for spacing but does not refute "too little VO2max stimulus"; a Z5 interval session does.
 3. Cross-check with the Z5 minutes in `get_intensity_distribution` and the TE values: Z5 time in the window next to "no stimulus" is a self-contradiction.
 
-A grey-zone critique (too much Z3) can stand next to a stimulus that was set.
+A critique of easy runs drifting into Z3 can stand next to a stimulus that was set.
 
 ## Reading VO2max
 

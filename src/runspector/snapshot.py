@@ -71,21 +71,9 @@ def lt_pace_s_per_km(mps: float | None) -> int | None:
     return round(1000 / mps) if mps and mps > 0 else None
 
 
-def band(zones_s: dict | None) -> str | None:
-    """Intensity band of one session — the ONE source: hard from 40 % Z4–5,
-    moderate from 30 % Z3 or 20 % hard, else easy."""
-    if not isinstance(zones_s, dict):
-        return None
-    z = {k: float(zones_s.get(k) or 0) for k in ("z1", "z2", "z3", "z4", "z5")}
-    total = sum(z.values())
-    if total <= 0:
-        return None
-    hard = (z["z4"] + z["z5"]) / total
-    if hard >= 0.4:
-        return "hard"
-    if z["z3"] / total >= 0.3 or hard >= 0.2:
-        return "moderate"
-    return "easy"
+#: The ONE source of a session's band lives in `logic` (`run_shape` counts by
+#: it too); this name stays for the run list and the week strip.
+band = logic.band
 
 
 def load_profile() -> dict:

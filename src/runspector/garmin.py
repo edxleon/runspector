@@ -802,13 +802,18 @@ def fetch_activity_detail(client, activity_id: int) -> dict:
 
     # Weather = weather station (true ambient), not the device's air temperature
     # sensor (skewed by body heat).
-    w = _safe(f"weather {activity_id}", lambda: client.get_activity_weather(activity_id),
+    # Weather and the chart are extras: a 404 on one of them (an indoor run, a
+    # chart Garmin dropped) is "none", kept as unknown - it used to throw away
+    # the zones fetched above and leave the run to be asked again for good.
+    w = _safe(f"weather {activity_id}",
+              _not_found_is_none(lambda: client.get_activity_weather(activity_id)),
               failed, ("temperature_c", "humidity_pct"))
     if isinstance(w, dict):
         detail["temperature_c"] = _f_to_c(w.get("temp"))
         detail["humidity_pct"] = _coerce(w.get("relativeHumidity"), 0, 100)
     dets = _safe(f"activity_details {activity_id}",
-                 lambda: client.get_activity_details(activity_id, maxchart=1000, maxpoly=0),
+                 _not_found_is_none(lambda: client.get_activity_details(activity_id, maxchart=1000,
+                                                                        maxpoly=0)),
                  failed, ("performance_condition",))
     detail["performance_condition"] = _performance_condition(dets)
 

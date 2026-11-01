@@ -14,7 +14,7 @@ Thresholds and reading rules for endurance running. General training theory, not
 
 Age formulas for max HR miss individuals by ± 10 bpm; a measured peak or the watch's bounds beat them. Zones anchored on lactate-threshold HR are more individual than %max.
 
-**80/20:** ~80 % of training time easy (Z1–Z2), ~20 % hard (Z4–Z5). The classic recreational mistake is too much Z3 — always medium-hard: tiring without the quality of a real stimulus. Easy runs stay below ~75 % of max HR.
+**80/20:** ~80 % of training time easy (Z1–Z2), ~20 % hard (Z4–Z5). The classic recreational mistake is no spread: easy runs drifting into Z3 and hard sessions that never get hard - always medium-hard, tiring without the quality of a real stimulus. Easy runs stay below ~75 % of max HR.
 
 ## ACWR — acute:chronic workload ratio
 
@@ -67,7 +67,9 @@ Long run: once a week, Z2, lengthened gradually. Quality: 1–2 per week, hard s
 
 ## Raising VO2max
 
-VO2max responds to **polarisation**: a large easy base *plus* true high-intensity work. The middle (Z3) does least for it.
+VO2max responds to a large easy base *plus* true high-intensity work. For recreational runners a pyramidal week (some zone 3 between the two) does as well as a polarised one; what does least is **every run in the middle** - no day easy enough to recover, none hard enough to be a stimulus. Zone 3 is not the mistake; the missing spread is.
+
+**How each run was run** (`get_athlete_profile`, "How your runs went"): each run is read by its own zone time as the run list colours it - easy, hard (also 15 minutes in zones 4-5), in the middle (neither). A run with workout steps is read by its reps: reps that got to zones 4-5 or averaged there make it hard; reps in zone 3 and above the easy band put it in the middle - a rep session that never got hard. A run whose average stayed within the easy band the app puts on the watch, with under a tenth of it in zones 4-5, is easy (a rep session only if its reps stayed there too). A tempo inside a run without workout steps is read by the whole run: its warm-up can pull it into the easy band. Counted over the last 10 such runs, never judged alone; "mostly hard - hardly an easy run" is the other way to have no spread. Name the pattern with its count and what changes it (easy runs within the easy band the app puts on the watch, hard sessions into zones 4-5); one run that fits it proves nothing. Garmin's training effect calls a long run in the middle "hard" - the count goes by the zones. With %-of-max zones that easy band reaches into zone 3, and `get_intensity_distribution` says so: its zone-3 share then holds easy running too.
 
 | Lever | Concretely |
 |---|---|
@@ -111,6 +113,9 @@ Three grades. **Evidence**: a trial or meta-analysis says so. **Convention**: wh
 | Claim | Grade | Source |
 |---|---|---|
 | ~80 % easy / ~20 % hard; the middle does least | Evidence (elite observational + one RCT) | Seiler & Kjerland 2006, Scand J Med Sci Sports 16:49, doi:10.1111/j.1600-0838.2004.00418.x · Stöggl & Sperlich 2014, Front Physiol 5:33, doi:10.3389/fphys.2014.00033 |
+| For recreational runners, pyramidal does as well as polarised; the mistake is no spread, not zone 3 | Evidence, mixed | Rosenblat et al. 2025, Sports Med, doi:10.1007/s40279-024-02034-z (network meta-analysis of individual data: competitive athletes gained more VO2max with polarised, recreational ones with pyramidal) · Oliveira, Boppre & Fonseca 2024, Sports Med (polarised better for VO2peak, not for other performance measures) |
+| How a run was run: the run list's band (hard from 40 % in zones 4-5; middle from 30 % zone 3 or 20 % zones 4-5; else easy), plus: hard for 15 min in zones 4-5; a run with workout steps by its reps - hard with 5 min and 40 % of rep time in zones 4-5 (reps of 10 min or less) or a rep average at zone 4, middle with a rep average in zone 3 and above the easy band; easy for a run whose average stayed within the app's easy band (0.83 x the zone-5 floor) with under 10 % in zones 4-5, a rep session only if its reps did too; a tempo inside a run without steps read by the whole run (Garmin's laps of it are one segment); what a run was meant to be is not read from its laps (a run/walk plan has them too); reps under 3 min that did not get there not judged by heart rate (a wrist sensor lags on a rep's start); counted over 10 runs | **This app** | – |
+| A run is left out when its zone 4 starts below 75 % of the heart rate the runner reaches (the top tenth of the runs' maxima, so a spike decides nothing) (zones set too low read every run harder). Zones set too high cannot be told: a runner who never runs hard never reaches zone 5 | **This app** | – |
 | VO2max: minutes at 90–95 % max HR, reps of 3–5 min | Evidence | Helgerud et al. 2007, Med Sci Sports Exerc 39:665, doi:10.1249/mss.0b013e3180304570 · Buchheit & Laursen 2013, Sports Med 43:313, doi:10.1007/s40279-013-0029-x |
 | ACWR sweet spot 0.8–1.3, spike > 1.5 | Evidence, team sports; **disputed** | Gabbett 2016, Br J Sports Med 50:273, doi:10.1136/bjsports-2015-095788 · critique: Impellizzeri et al. 2020, Int J Sports Physiol Perform 15:907, doi:10.1123/ijspp.2019-0864 |
 | Monotony > 2.0 with a heavy week holds the week | Evidence for the measure, **convention** for the line | Foster 1998, Med Sci Sports Exerc 30:1164, doi:10.1097/00005768-199807000-00023 (monotony and strain; illnesses followed individually exceeded thresholds, mostly of strain) — the 2.0 line and "heavy = the athlete's own 4-week mean" are practice and this app |
