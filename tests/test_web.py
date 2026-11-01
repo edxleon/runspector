@@ -343,7 +343,7 @@ def test_public_cards_cap_visibly_and_survive_a_broken_file():
     jobs.card_path("j-20260602-080000-bbbb").write_text("{broken", encoding="utf-8")
     cards = jobs.public_cards()
     assert len(cards) == 1
-    assert len(cards[0]["headline"]) == 220 and cards[0]["headline"].endswith("…")
+    assert len(cards[0]["headline"]) == 400 and cards[0]["headline"].endswith("…")
     assert len(cards[0]["bullets"]) == 8
 
 
@@ -1020,3 +1020,18 @@ def test_the_coachs_conclusion_reaches_the_page_whole(tmp_path, monkeypatch):
                                                "verdict": verdict, "bullets": ["b"]})
     (card,) = [c for c in jobs.public_cards() if c["id"] == "j-20260101-000000-abcd"]
     assert card["verdict"] == verdict
+
+
+def test_no_part_of_a_card_is_cut_at_its_usual_length(tmp_path, monkeypatch):
+    """A 230-character headline ended in "... it is the break fr…" on the card:
+    the list cut headlines at 220 and points at 400, lengths a real card
+    reaches. The caps bound a broken card, not a normal one."""
+    from runspector.web import jobs
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
+    headline = "Your VO2max fell " + "and fell " * 40 + "in the break."
+    point = "A point " * 70
+    jobs.write_card("j-20260101-000000-beef", {"kind": "why-vo2max", "headline": headline[:380],
+                                               "verdict": "v", "bullets": [point[:550]], "delta": "d" * 380})
+    (card,) = [c for c in jobs.public_cards() if c["id"] == "j-20260101-000000-beef"]
+    assert card["headline"] == headline[:380] and card["bullets"] == [point[:550]]
+    assert card["delta"] == "d" * 380

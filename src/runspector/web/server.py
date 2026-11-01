@@ -808,9 +808,9 @@ def follow_up_prompt(src: dict, card: dict | None, question: str) -> str:
     lines = []
     if card:
         lines += [f"Card from {str(card.get('day') or '?')[:10]}",
-                  f"Headline: {str(card.get('headline') or '')[:220]}",
-                  f"Verdict: {str(card.get('verdict') or '')[:160]}"]
-        lines += [f"- {str(b)[:300]}" for b in (card.get("bullets") or [])[:6]]
+                  f"Headline: {str(card.get('headline') or '')[:400]}",
+                  f"Verdict: {str(card.get('verdict') or '')[:600]}"]
+        lines += [f"- {str(b)[:700]}" for b in (card.get("bullets") or [])[:6]]
     else:
         lines.append("(card no longer available) " + str(src.get("result_summary") or "")[:300])
     return (f"FOLLOW-UP on an analysis card (job {src.get('id')}).\n\nNOW: {question}\n"

@@ -411,7 +411,7 @@ export function renderCard(c, opts = {}) {
       const b = sourceBadge(src);
       const badge = b && b.kind !== "measured"
         ? `<span class="src src-${esc(b.kind)}" title="${esc(b.tip)}">${esc(b.label)}</span> ` : "";
-      return `<p class="card-text">${badge}${esc(truncate(textPlain(text), 400))}</p>`;
+      return `<p class="card-text">${badge}${esc(truncate(textPlain(text), 700))}</p>`;
     }).join("");
     // The further points and what changed since the last card behind ONE line:
     // each its own fold-out made four of them on a card.

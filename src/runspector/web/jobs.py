@@ -261,11 +261,13 @@ def public_cards(limit: int = 10) -> list[dict]:
             "id": cid, "job_id": cid,
             "kind": _cap(c.get("kind"), 40), "ref": _cap(c.get("ref"), 40),
             "day": str(c.get("day") or "")[:10],
-            "headline": _cap(c.get("headline"), 220),
+            # Caps for a broken card, not a normal one: 220 and 400 cut real cards
+            # mid-word ("... it is the break fr…").
+            "headline": _cap(c.get("headline"), 400),
             # The coach's "what to do": cut at 160 it stopped mid-word on the card.
             "verdict": _cap(c.get("verdict"), 600),
-            "bullets": [_cap(b, 400) for b in bullets[:8]],
-            "delta": _cap(c.get("delta"), 300),
+            "bullets": [_cap(b, 700) for b in bullets[:8]],
+            "delta": _cap(c.get("delta"), 400),
             "text": "",
             "written": str(c.get("generated_at") or ""),
             "source": "job",

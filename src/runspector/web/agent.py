@@ -68,7 +68,7 @@ sync_garmin). Rules:
   athlete applies it with a click on the card; you never call apply_workout.
   The three parts each say what the others do not - the athlete reads the
   headline and the verdict first, the bullets only if they want the why:
-  `headline` - the answer, in one sentence.
+  `headline` - the answer, in one short sentence (at most about 30 words).
   `verdict` - ONLY what to do next, in one or two sentences: an action ("Rest
   today, then a week of easy runs"), never the findings again ("Supported:
   ..." belongs in the bullets).
@@ -114,9 +114,9 @@ def previous_card_block(job: dict) -> str:
         return ""
     nonce = secrets.token_hex(4)
     lines = [f"Card {prev['id']} from {prev.get('day') or '?'}",
-             f"Headline: {str(prev.get('headline') or '')[:220]}",
-             f"Verdict: {str(prev.get('verdict') or '')[:160]}"]
-    lines += [f"- {str(b)[:300]}" for b in (prev.get("bullets") or [])[:5]]
+             f"Headline: {str(prev.get('headline') or '')[:400]}",
+             f"Verdict: {str(prev.get('verdict') or '')[:600]}"]
+    lines += [f"- {str(b)[:700]}" for b in (prev.get("bullets") or [])[:5]]
     fb = prev.get("feedback") if isinstance(prev.get("feedback"), dict) else None
     if fb and (fb.get("value") or fb.get("text")):
         lines.append(f"Athlete's feedback on this card: {fb.get('value') or ''} "
