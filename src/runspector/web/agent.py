@@ -66,8 +66,15 @@ sync_garmin). Rules:
   Optionally add "delta":"<one sentence>" if a previous card is given below.
   If you filed a session with propose_workout, add "proposal":"<its id>" - the
   athlete applies it with a click on the card; you never call apply_workout.
-  `bullets`: AT MOST 5, each at most 2 short sentences, numbers first. No
-  repetition between headline/verdict/bullets, no methodology, no hedging
+  The three parts each say what the others do not - the athlete reads the
+  headline and the verdict first, the bullets only if they want the why:
+  `headline` - the answer, in one sentence.
+  `verdict` - ONLY what to do next, in one or two sentences: an action ("Rest
+  today, then a week of easy runs"), never the findings again ("Supported:
+  ..." belongs in the bullets).
+  `bullets`: the numbers behind the headline, AT MOST 5, each at most 2 short
+  sentences, numbers first, each adding a fact the headline and the verdict do
+  not state - a number appears in one place only. No methodology, no hedging
   boilerplate, no reference knowledge that decides nothing today. Decidability
   beats completeness.
   Start every bullet with where it comes from, in square brackets - the page

@@ -22,7 +22,7 @@
     "title": "Why is VO2max moving?",
     "hint": "Factors instead of guesses",
     "params": [],
-    "prompt": "Examine how VO2max developed over the last 8 weeks and WHICH factors mechanically fit.\n\nFetch the data with get_vo2max_history, get_training_load and get_intensity_distribution (28 and 84 days), plus get_recent_activities.\n\nImportant: Garmin's VO2max is carry-forward - on days without a real measurement the last value is repeated. Treat the series as steps and interpret only the jumps, not the plateau in between. Compare the last 28 days with the 28 before: distance, Z5 minutes, easy share, average temperature. If the older block was not read in full, do not sell the comparison as a change.\n\nSay clearly what the data supports and what it does not (correlation is not causation, n=1). No training-theory platitudes - refer to the athlete's numbers."
+    "prompt": "Examine how VO2max developed over the last 8 weeks and WHICH factors mechanically fit.\n\nFetch the data with get_vo2max_history, get_training_load and get_intensity_distribution (28 and 84 days), plus get_recent_activities.\n\nImportant: Garmin's VO2max is carry-forward - on days without a real measurement the last value is repeated. Treat the series as steps and interpret only the jumps, not the plateau in between. Compare the last 28 days with the 28 before: distance, Z5 minutes, easy share, average temperature. If the older block was not read in full, do not sell the comparison as a change.\n\nSay clearly in the bullets what the data supports and what it does not (correlation is not causation, n=1); the verdict is what to do next. No training-theory platitudes - refer to the athlete's numbers."
   },
   {
     "id": "plan-session",

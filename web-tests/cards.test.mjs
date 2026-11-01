@@ -299,15 +299,35 @@ test("renderEvidence: every value from the record is escaped, and it says what i
   assert.doesNotMatch(html, /<img/, "no tag from the record reaches the page");
   assert.match(html, /&lt;img/);
   assert.match(html, /only through this app's own tools/);
-  assert.match(html, /2 of 3 numbers on this card/);
+  // The count is in the summary line beside "How this card was made"; inside,
+  // only what was not found.
+  assert.doesNotMatch(html, /2 of 3 numbers on this card/);
+  assert.match(html, /Not found in your data: <b>&lt;img/);
   assert.match(html, /\(the headline\)/);
   assert.match(html, /A session put on your watch|a session put on your watch/);
   assert.match(html, /opus-5 · rules abcdef01 · app 0\.8\.0/);
   assert.match(renderEvidence({ recorded: false, old: true }), /before the app kept a record/);
   assert.match(renderEvidence("loading"), /Loading/);
   assert.match(renderEvidence({ error: "<b>x</b>" }), /&lt;b&gt;/);
-  assert.match(renderEvidence({ recorded: true, calls: [], check: { numbers: 2, unmatched: [] } }),
-               /Every number on this card \(2\)/);
+  assert.doesNotMatch(renderEvidence({ recorded: true, calls: [], check: { numbers: 2, unmatched: [] } }),
+                     /Every number on this card/);
+});
+
+test("renderEvidence: a step in words, its tool's name only as a tooltip", async () => {
+  const { renderEvidence } = await import("../src/runspector/web/static/cards.js");
+  const html = renderEvidence({ recorded: true, calls: [
+    { tool: "get_intensity_distribution", label: "your time in heart-rate zones",
+      args: '{"period_days": 84}', result: "x" }] });
+  assert.match(html, /Read your time in heart-rate zones · last 84 days/);
+  assert.doesNotMatch(html, />get_intensity_distribution/);
+  assert.match(html, /title="get_intensity_distribution"/);
+});
+
+test("renderCard: the data date once, at the top", () => {
+  const html = renderCard({ id: "j-7", kind: "train-today", headline: "h", verdict: "v", bullets: ["a"],
+    data_through: "2026-09-06", generated_at: "2026-09-06T07:45:01+02:00" }, { open: true });
+  assert.equal((html.match(/data up to/g) || []).length, 1);
+  assert.match(html, /card-metaline">generated /);
 });
 
 test("renderCard: only the exceptions are marked; the check lives in How this card was made", () => {

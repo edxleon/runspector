@@ -210,6 +210,20 @@ export function evidenceToggle(open, cached) {
   return cached && typeof cached === "object" && cached.error ? "forget" : null;
 }
 
+/** A step's arguments in words: `{"period_days": 84}` → "last 84 days". What
+ *  is not known stays as it came, short. */
+export function argsWords(args) {
+  if (!args) return "";
+  let a;
+  try { a = typeof args === "string" ? JSON.parse(args) : args; } catch { return String(args).slice(0, 80); }
+  if (!a || typeof a !== "object") return String(args).slice(0, 80);
+  return Object.entries(a).map(([k, v]) =>
+    /^(period_)?days$/.test(k) ? `last ${v} days`
+    : k === "day" ? String(v)
+    : k === "activity_id" ? "one run"
+    : `${k.replace(/_/g, " ")} ${typeof v === "object" ? JSON.stringify(v) : v}`).join(", ").slice(0, 120);
+}
+
 /** "the headline", "point 2" - where a number sits, for the sentence. */
 const whereWords = w => (w === "headline" || w === "verdict" ? `the ${w}` : w);
 
@@ -232,25 +246,24 @@ export function renderEvidence(rec, det = () => "") {
   const ck = rec.check || {}, listed = ck.unmatched || [], total = Number(ck.numbers) || 0;
   const missing = Number(ck.missing ?? listed.length) || 0;
   const more = missing - listed.length;
+  // The count is on the summary line ("52 of 53 numbers found in your data");
+  // here only what was not found - said once, not twice.
   const check = ck.checked === false
     ? `<div class="ev-check ev-warn">This record is incomplete - the run's output was too long to
         keep whole - so the numbers on this card are not checked against it.</div>`
-    : !total ? ""
     : missing
-      ? `<div class="ev-check ev-warn">${esc(total - missing)} of ${esc(total)} numbers on this card
-          are in what the coach looked at. Not found there: ${listed.map(u =>
+      ? `<div class="ev-check ev-warn">Not found in your data: ${listed.map(u =>
             `<b>${esc(u.value)}</b> (${esc(whereWords(u.where))})`).join(", ")}${
-          more > 0 ? ` and ${esc(more)} more` : ""} - the coach worked
-          ${missing === 1 ? "it" : "them"} out itself, or ${missing === 1 ? "it is" : "they are"}
-          not backed by your data.</div>`
-      : `<div class="ev-check ev-ok">Every number on this card (${esc(total)}) is in what the coach
-          looked at.</div>`;
+          more > 0 ? ` and ${esc(more)} more` : ""} - probably worked out by the coach, or not
+          backed by your data.</div>`
+      : "";
   const honest = total && ck.checked !== false ? `<p class="note">Found means the number was in front of the coach - not
     that it was read rightly. That part is yours to judge.</p>` : "";
+  // A step in words - "Read your time in heart-rate zones · last 84 days"; the
+  // tool's own name only as a tooltip, it said the label a second time.
   const calls = (rec.calls || []).map((c, i) => `<li class="ev-call${c.error ? " ev-failed" : ""}">
-      <span class="ev-label">${esc(c.changed ? c.label : "Read " + c.label)}${
-        c.error ? " - failed" : ""}</span>
-      <span class="ev-tool mono">${esc(c.tool)}${c.args ? " " + esc(c.args) : ""}</span>
+      <span class="ev-label" title="${esc(c.tool || "")}">${esc(c.changed ? c.label : "Read " + c.label)}${
+        argsWords(c.args) ? ` · ${esc(argsWords(c.args))}` : ""}${c.error ? " - failed" : ""}</span>
       <details class="card-more ev-result" ${det("ev" + i)}><summary>What came back</summary>
         <pre class="ev-pre mono">${esc(c.result || "(nothing)")}</pre></details></li>`).join("");
   const list = calls ? `<ol class="ev-calls">${calls}</ol>`
@@ -409,7 +422,9 @@ export function renderCard(c, opts = {}) {
     const content = points(visible) + (moreLabel
       ? `<details class="card-more" ${det("more")}><summary>${moreLabel}</summary>${points(rest)}${delta}</details>`
       : "");
-    const metaLine = meta.length ? `<div class="card-metaline">${meta.map(esc).join(" · ")}</div>` : "";
+    // The head already shows the first part ("data up to ..."): not again here.
+    const tail = meta.slice(1);
+    const metaLine = tail.length ? `<div class="card-metaline">${tail.map(esc).join(" · ")}</div>` : "";
     // What the coach looked at - loaded when opened (`install()`), from the
     // card's own record. Cards older than the record have none.
     const evOpen = openDetails.has(`${id}|evidence`);
