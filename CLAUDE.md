@@ -20,7 +20,9 @@ number to lower. A Biome version bump changes `ci.yml`, the hook, this line and 
 
 | Change | Also |
 |---|---|
-| the card frame (`FRAME` in `web/agent.py`) | a real card run (`runspector serve`, a card on a throw-away copy): the evals never see the frame, only `skills/`; its source marks are read by `evidence.split_marks` and checked in `tests/test_evidence.py` |
+| the card frame (`FRAME` in `web/agent.py`) | a real card run (`runspector serve`, a card on a throw-away copy): the coach evals never see the frame, only `skills/`; its source marks are read by `evidence.split_marks` and checked in `tests/test_evidence.py`; and `uv run python evals/run_conversations.py` (the frame, the conversation and what is kept, end to end on `serve --demo`) |
+| the check before a fact is kept (`VERIFY_PROMPT`, `VERIFY_MODEL`, `candidate_facts` in `web/agent.py`) or `evals/memory_check.yaml` | `uv run python evals/run_memory_check.py` (three repeats, one wrong verdict is red; it appends to `evals/MEMORY_CHECK_LOG.md` - a model or prompt change is decided on that record), and once `--no-rules` |
+| the conversation the server builds (`_thread_lines`, `follow_up_prompt`, `step_context`), what is kept (`profile.keep_told`) or let go (`jobs.scrub_told`) | `tests/test_conversation.py` and the long courses of `tests/test_memory_properties.py` (`RUNSPECTOR_SIM_SEEDS=60` for the hunt); then `evals/run_conversations.py` |
 | `src/runspector/skills/*.md` or `evals/cases.yaml` | full eval run (`uv run python evals/run_evals.py`), it rewrites `evals/RESULTS.md`; a new case also once with `--no-skills` - it must FAIL there; a flaky case: narrow the judge question first (`evals/README.md`) |
 | the wording of a tool in `tools.py` | `uv run python evals/fixture_gen.py [case-id]` and paste into `cases.yaml`; `tests/test_eval_fixture.py` says which |
 | `facts.py`, the athlete block in `web/agent.py`, `get_athlete_profile` | the same re-render (`open-question-biggest-lever-first` shows the profile); the athlete block stays before `TASK:` and outside `PROMPT_CAP` (`tests/test_web.py`) |

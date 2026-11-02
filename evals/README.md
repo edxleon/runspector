@@ -36,6 +36,23 @@ off that moment, rendering fails instead of the case quietly testing something e
 The coaching reference is **imported** from `runspector.web.agent.coaching_reference()`,
 not copied, so a reworded framing in the app cannot pass here unnoticed.
 
+## Two more suites: what the coach keeps, and conversations
+
+A coach card is a conversation, and the coach keeps what the athlete says about
+themselves (roadmap 25). Two parts of that are a model's judgement, so they get
+cases with the real model too:
+
+| Suite | What it runs | Record |
+|---|---|---|
+| `run_memory_check.py` + `memory_check.yaml` | the check before a fact is kept (`verify_facts`, its prompt and model imported from the app) behind the app's cheap gates: each note with the verdict it must get - a "not" that stays, a question that is no fact, a pain of now, someone else's fact, a change that must change THAT fact, an instruction dressed as a note - each case three times; one wrong verdict is red. `--no-rules` is the negative control, `--model` a comparison | `MEMORY_CHECK.md` (the app's model, last run), `MEMORY_CHECK_LOG.md` (every full run, every model - what a model or prompt change is decided on) |
+| `run_conversations.py` + `conversations.yaml` | stories of several questions against `runspector serve --demo` through the app's own routes: what is kept and what must not be, the check-in a card offers, a question sent before the last answer is there, the first question still in the coach's task at the sixth, a fact let go in a new conversation - checked by code first, then a judge question | `CONVERSATIONS.md` (last run), `CONVERSATIONS_LOG.md` (every full run) |
+
+Both run weekly with the coach evals (`.github/workflows/evals.yml`) and by hand
+after a change to what they measure (`CLAUDE.md`, "When you change X"). The
+bookkeeping around them - nothing pushed out, every copy reached by a Forget,
+the conversation never cut by the prompt cap - is deterministic and gated in CI:
+`tests/test_conversation.py` and `tests/test_memory_properties.py`.
+
 ## What this suite does *not* cover
 
 The shipped prompt is more than the two skill files, and the gap is deliberate but worth
@@ -44,7 +61,7 @@ naming:
 | Not covered | Why it matters |
 |---|---|
 | `src/runspector/templates.json` | the per-button task text (*Analyze this run*, *Review my week*) is rendered by the server and does not enter an eval run — with ONE exception: `plan-button-does-not-file-against-a-red-day` pastes the *Plan a session* text in as its input, because that is the prompt that can put a hard session in front of a one-tap write button |
-| the JSON-card frame in `web/agent.py` | card contract, length caps and the nonce-framed data blocks are checked by `tests/test_web.py` against a stubbed CLI, not by a model |
+| the JSON-card frame in `web/agent.py` | card contract, length caps and the nonce-framed data blocks are checked by `tests/test_web.py` against a stubbed CLI; what a model does with the frame is measured end to end by `run_conversations.py` (below), not here |
 | the MCP round trip | cases paste tool output inline; nothing here proves the agent *calls* the right tool |
 
 Two more honest caveats: the suite runs `claude --safe-mode`, which **production cannot

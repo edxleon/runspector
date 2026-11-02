@@ -236,3 +236,34 @@ def test_the_authors_private_setup_is_a_leak(tree):
     (tree / "CLAUDE.md").write_text(f"Review with the skill from {private} first.", encoding="utf-8")
     rc, out = run_gate(tree)
     assert rc == 1 and "private setup" in out
+
+
+@pytest.mark.parametrize("message,leaks", [
+    ("Fix the thing\n\nClaude-Session: https://claude.ai/code/session_0123abcDEF", True),
+    ("Fix the thing, see claude.ai/code/session_0123abcDEF", True),
+    ("Fix the thing\n\nlog at /Users/someone/x", True),
+    ("Fix the thing\n\nCo-Authored-By: A Model <noreply@anthropic.com>", False),
+])
+def test_a_commit_text_is_published_like_a_file(tree, message, leaks):
+    """70 public commits carried a link to the author's AI session in their text:
+    the gate read files and commit addresses, never the message."""
+    email = "1+someone@users.noreply.github.com"
+    _git(tree, "init", "-q", email=email)
+    _git(tree, "add", "-A", email=email)
+    _git(tree, "commit", "-qm", message, email=email)
+    rc, out = run_gate(tree)
+    assert (rc == 1 and "message:" in out) is leaks, out
+
+
+def test_what_a_remote_already_has_is_not_held_against_the_next_commit(tree):
+    """Published history cannot be taken back by this gate; failing every push
+    on it would only teach skipping the gate."""
+    email = "1+someone@users.noreply.github.com"
+    _git(tree, "init", "-q", email=email)
+    _git(tree, "add", "-A", email=email)
+    old = "old\n\nClaude-Session: https://claude.ai/code/session_0123abcDEF"
+    _git(tree, "commit", "-qm", old, email=email)
+    _git(tree, "update-ref", "refs/remotes/origin/main", "HEAD", email=email)
+    _git(tree, "commit", "-q", "--allow-empty", "-m", "new and clean", email=email)
+    rc, out = run_gate(tree)
+    assert rc == 0, out

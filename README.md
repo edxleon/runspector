@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1500 tests, 132 frontend tests and that gate on three operating systems and two Python versions, with every
+1522 tests, 132 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -421,6 +421,12 @@ pieces of the shipped prompt (`templates.json` and the JSON-card frame in `web/a
 suite is pointed at, neither of which production can use. The framing itself is imported from the app
 rather than copied, so the suite cannot drift from what ships. `--no-skills` re-runs a case with the
 skill files removed: a case that still passes is testing the model, not the prompt.
+Two more suites run the parts the coach's memory rests on with the real model: the check before a
+fact is kept ([`memory_check.yaml`](evals/memory_check.yaml) - a "not" that stays, a pain of now, a
+change that must change *that* fact, each case three times, every run of every model
+[logged](evals/MEMORY_CHECK_LOG.md)), and [conversations](evals/conversations.yaml) end to end
+against the demo athlete - what is kept and what must not be, the check-in a card offers, the first
+question still in the coach's task at the sixth. The card frame is measured there, by a model.
 
 **Boring technology.** Python stdlib HTTP server, `sqlite3`, vanilla ES modules, inline SVG charts. No
 framework, no build step, no ORM. ~40 SQL queries, all in [`store.py`](src/runspector/store.py).

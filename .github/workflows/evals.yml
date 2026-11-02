@@ -62,8 +62,9 @@ jobs:
     if: needs.changed.outputs.run == 'true'
     runs-on: ubuntu-latest
     environment: evals
-    # 29 cases at ~20 s for the answer and ~10 s for the judge: about 15 min.
-    timeout-minutes: 45
+    # 29 cases at ~20 s for the answer and ~10 s for the judge: about 15 min;
+    # the check before a fact is kept, ~2 min; the conversations, 10-20 min.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -125,10 +126,29 @@ jobs:
         # job that holds the token.
         run: uv run --python 3.12 --locked python evals/run_evals.py
 
+      # The check before the coach keeps a fact (roadmap 25): its own cases,
+      # each run three times; one wrong verdict is red. `if: always()`: a red
+      # coach case must not hide how the check did.
+      - name: The check before a fact is kept
+        if: always()
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: uv run --python 3.12 --locked python evals/run_memory_check.py --note "weekly"
+
+      # Conversations end to end against `serve --demo`: the card frame, the
+      # conversation, the next steps, what is kept and let go - as they ship.
+      - name: Conversations with the coach
+        if: always()
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: uv run --python 3.12 --locked python evals/run_conversations.py --note "weekly"
+
       - name: Result as the job summary
         if: always()
         run: |
-          if [ -f evals/RESULTS.md ]; then cat evals/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
+          for f in evals/RESULTS.md evals/MEMORY_CHECK.md evals/CONVERSATIONS.md; do
+            if [ -f "$f" ]; then cat "$f" >> "$GITHUB_STEP_SUMMARY"; echo >> "$GITHUB_STEP_SUMMARY"; fi
+          done
 
       # The answers and the judge's reasons of every case: what a red case is
       # read from. Synthetic athletes only - nothing personal is in them.
@@ -139,5 +159,9 @@ jobs:
           path: |
             evals/RESULTS.md
             evals/last-run.json
+            evals/MEMORY_CHECK.md
+            evals/MEMORY_CHECK_LOG.md
+            evals/CONVERSATIONS.md
+            evals/CONVERSATIONS_LOG.md
           retention-days: 30
           if-no-files-found: ignore

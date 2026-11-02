@@ -16,6 +16,7 @@ node_modules/
 .env
 # the full model answers of the last run; the tracked summary is evals/RESULTS.md
 evals/last-run.json
+evals/conversations-last-run.json
 
 # coverage output (the CI gate does not produce it; a local run should not ship it)
 .coverage

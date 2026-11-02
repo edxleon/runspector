@@ -497,7 +497,7 @@ VO2max moves), each a button that starts that card with the conversation as its 
 reaches the watch without the yes it always needs. And a memory of what the athlete said: the coach
 may note a lasting fact from what the athlete wrote - their time, what they like, their goal, an old
 injury they mention, also inside a question - in a few words, every number one they wrote. Before it
-is kept, a second, small model call with no tools and nothing but the athlete's message checks it,
+is kept, a second model call with no tools and nothing but the athlete's message checks it,
 and keeps it only when the message says it with its meaning - not asked, not doubted, not turned
 round, not about someone else, not a pain of today; any failure keeps nothing. A fact that changes
 one kept before takes its place - only when the check, shown that one too, finds the message changes

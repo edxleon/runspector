@@ -111,6 +111,37 @@ def commit_identities() -> int:
     return hits
 
 
+#: A link to the author's AI coding session (an attribution line some tools
+#: add). It is private to their account, but it is no one else's business, and
+#: 70 public commits carried one before this check existed.
+_SESSION_LINK = re.compile(r"claude\.ai/code/session_\w+|^Claude-Session:", re.I | re.M)
+
+
+def commit_messages(patterns: dict[str, re.Pattern]) -> int:
+    """The TEXT of every commit about to be published - those no remote has yet
+    (all of them in a repository without one): a commit message is published
+    like a file, and none of these checks looked at it. What is already public
+    is not this gate's to change; what is not yet, it can still stop."""
+    if not (ROOT / ".git").exists():
+        return 0
+    import subprocess
+
+    out = subprocess.run(["git", "-C", str(ROOT), "log", "HEAD", "--not", "--remotes",
+                          "--format=%h%x1f%B%x1e"], capture_output=True, text=True, errors="replace")
+    if out.returncode != 0:          # no commits yet
+        return 0
+    checks = {"AI session link": _SESSION_LINK,
+              **{k: v for k, v in patterns.items() if k != "long numeric id (chat/user id?)"}}
+    hits = 0
+    for entry in out.stdout.split("\x1e"):
+        sha, _, text = entry.strip().partition("\x1f")
+        for label, rx in checks.items():
+            if sha and (m := rx.search(text)):
+                hits += 1
+                print(f"commit {sha}: message: {label}: {m.group(0)[:60]}")
+    return hits
+
+
 def main() -> int:
     patterns = dict(PATTERNS)
     if (e := extra()) is not None:
@@ -163,6 +194,7 @@ def main() -> int:
                 hits += 1
                 print(f"{path.relative_to(ROOT)}:{no}: {label}: {m.group(0)[:60]}")
     hits += commit_identities()
+    hits += commit_messages(patterns)
     print(f"{hits} hit(s)" if hits else "clean")
     return 1 if hits else 0
 

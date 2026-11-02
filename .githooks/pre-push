@@ -22,6 +22,23 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         echo "          uv run python evals/run_evals.py   (or --no-verify, and say why)"
         exit 1
     fi
+    # The check before a fact is kept is a prompt and a model, measured by its
+    # own cases: a change to either ships with a run, which appends to the log.
+    if echo "$changed" | grep -qx 'src/runspector/web/agent.py' &&
+       ! echo "$changed" | grep -qx 'evals/MEMORY_CHECK_LOG.md'; then
+        check_of() {
+            git show "$1:src/runspector/web/agent.py" 2>/dev/null | python3 -c '
+import hashlib, re, sys
+s = sys.stdin.read()
+parts = [re.search(p, s, re.S) for p in (r"VERIFY_PROMPT = \"\"\"(.*?)\"\"\"", r"VERIFY_MODEL = \"([^\"]*)\"")]
+print(hashlib.sha256(repr([m and m.group(1) for m in parts]).encode()).hexdigest())'
+        }
+        if [ "$(check_of "$remote_sha")" != "$(check_of "$local_sha")" ]; then
+            echo "pre-push: the check before a fact is kept changed, evals/MEMORY_CHECK_LOG.md did not."
+            echo "          uv run python evals/run_memory_check.py   (or --no-verify, and say why)"
+            exit 1
+        fi
+    fi
 done
 
 uv run ruff check
