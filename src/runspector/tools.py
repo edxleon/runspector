@@ -307,7 +307,7 @@ def get_training_readiness(store: Store) -> str:
             f"{'TODAY ' if p['day'] == today.isoformat() else ''}"
             f"{_WEEKDAY[date.fromisoformat(p['day']).weekday()]} {p['day']} \"{p['title'] or '?'}\" "
             f"[schedule {p['schedule_id']}]" + _easier_note(store, p, today, decision, replaced)
-            for p in plan[:30])
+            for p in plan[:30]) + (f"; and {len(plan) - 30} more not listed" if len(plan) > 30 else "")
         stale += _swap_line(store, plan, decision, today)
     else:
         stale += "\n\nGarmin calendar: nothing scheduled in the next 14 days."

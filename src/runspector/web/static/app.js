@@ -1775,8 +1775,10 @@ document.addEventListener("input", ev => {
 function onPlanClick(ev) {
   const weekBtn = ev.target.closest("button[data-plan-week]");
   if (weekBtn) {
+    // The change filed and not yet on the watch stays shown (round 2: the
+    // toggle dropped it, and it could not be reached again).
     Object.assign(planEdit, { week: Number(weekBtn.dataset.planWeek) === 1 ? 1 : 0, day: null,
-                              proposal: null, error: null });
+                              error: null });
     renderWeek();
     return true;
   }

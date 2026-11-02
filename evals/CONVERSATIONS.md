@@ -1,6 +1,6 @@
 # Conversations with the coach - last run
 
-2026-11-02 15:20 CET, coach model: the CLI's default: **19/19 steps right**.
+2026-11-02 18:05 CET, coach model: sonnet: **19/19 steps right**.
 
 | story | result | failures |
 |---|---|---|

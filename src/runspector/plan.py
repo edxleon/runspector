@@ -216,7 +216,8 @@ def changes_on_calendar(store: Store, *, filed_by: str = "athlete", limit: int =
                for it in d["items"]):
             continue
         if any(it.get("schedule_id") for it in d["items"]) or any(
-                r.get("removed") and not r.get("restored") for r in d.get("replaces") or []):
+                (r.get("removed") and not r.get("restored")) or r.get("unclear")
+                for r in d.get("replaces") or []):
             out.append(d)
         if len(out) >= limit:
             break
@@ -1010,9 +1011,10 @@ def propose_change(store: Store, edits: list[dict], *, today: date | None = None
         day = _change_day(e["day"], today=anchor) if e.get("day") else was
         if e["action"] == "move":
             if own is None:
-                raise ValueError(f"\"{r.get('title')}\" is not a session this app planned: it "
-                                 f"can be taken out, or replaced with one of the app's - or "
-                                 f"moved in Garmin Connect")
+                raise ValueError(f"\"{r.get('title')}\" is not a session this app planned, so it "
+                                 f"cannot be moved as it is: use action \"change\" with the new "
+                                 f"\"day\", a kind and minutes - that takes it off and puts one of "
+                                 f"the app's sessions there - or move it in Garmin Connect")
             if day == was:
                 raise ValueError(f"\"{r.get('title')}\" is on {was} already")
             try:
@@ -1169,10 +1171,24 @@ def change_notes(store: Store, anchor: date, snap: dict, replaces: list[dict],
         blind = sum(1 for _, _, m in after if m is None)
         # The maintainer's measure: more than 10 % over last week - besides the
         # plan's own size, which steps from the weeks before (iter).
-        last = sum(store.running_seconds_by_day(monday - timedelta(days=7),
-                                                monday - timedelta(days=1)).values()) // 60
+        # ...a week that is over: next week is not measured against this one,
+        # still under way (round 2: "325 % more than last week's ~40 min").
+        last = (sum(store.running_seconds_by_day(monday - timedelta(days=7),
+                                                 monday - timedelta(days=1)).values()) // 60
+                if monday - timedelta(days=1) < anchor else 0)
         over_last = last > 0 and total_after > last * 1.10
         over_plan = bool(budget) and total_after > budget * 1.05
+        # Workouts of unknown length are not nothing: near the plan's size with
+        # them, the week is likely over it (round 2: 160 counted, ~250 real).
+        likely_over = bool(blind and budget and total_after >= budget * 0.8)
+        if likely_over and not (over_last or over_plan) and not unknown \
+                and total_after > total_before:
+            notes.append(f"This week would hold ~{total_after} min of running the app can count, "
+                         f"and {blind} workout{'s' if blind > 1 else ''} from your Garmin calendar "
+                         f"whose length it does not know - with {'them' if blind > 1 else 'it'} the "
+                         f"week is likely over the ~{budget} min the plan would give it "
+                         f"({_MODE_WORDS.get(mode, mode)}). More at once than about 10 % is where "
+                         f"overuse injuries start.")
         if (over_last or over_plan) and not unknown and total_after > total_before:
             notes.append(
                 f"This week would hold ~{total_after} min of running"
@@ -1308,6 +1324,17 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
             complete = False
         if complete:
             store.replace_scheduled_workouts(fresh_cal, lo, hi)
+            # Gone from the calendar read just now: it DID come off, the answer
+            # was lost - recorded as off, so undo can put it back (round 2: the
+            # retry said "did NOT remove ... remove it yourself").
+            for r in [r for r in todo if r.get("unclear")]:
+                if _scheduled_workout_id(store, int(r["schedule_id"]), today=anchor) is None:
+                    r.update(removed=True, restored=None, rev=int(r.get("rev") or 0) + 1)
+                    r.pop("unclear", None)
+                    warnings.append(f"\"{r.get('title')}\" did come off {r.get('day')} - Garmin's "
+                                    f"earlier answer was lost")
+                    _after_removal(store, r, proposal_id, warnings)
+            todo = [r for r in todo if r.get("removed") is None]
         else:
             for r in [r for r in todo if r.get("unclear")]:
                 warnings.append(f"\"{r.get('title')}\" on {r.get('day')}: whether it came off is "
@@ -1368,17 +1395,7 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
         # put it back again.
         store.release_proposal_item(proposal_id, RESTORE_CLAIM_INDEX)
         log.info("unscheduled %s (workout %s) for proposal %s", sid, wid_was, proposal_id)
-        # The app's record of where its workout sits, and the proposal that put
-        # it there, stay true: that week's undo would otherwise aim at a
-        # calendar id that is gone. Apart from the removal: a local write that
-        # fails does not make the removal on Garmin not have happened (iter).
-        try:
-            store.set_workout_schedule(wid_was, None, None, only_if=sid)
-            _mark_taken_off(wid_was, sid, proposal_id)
-        except Exception as exc:  # noqa: BLE001 — Garmin is right; the record lags
-            log.warning("record of workout %s not updated: %r", wid_was, exc)
-            warnings.append(f"\"{r.get('title')}\" came off {r.get('day')}, but the app's own "
-                            f"record of it could not be updated ({type(exc).__name__})")
+        _after_removal(store, r, proposal_id, warnings)
     # Saved BEFORE the first upload: an unschedule that happened must not be
     # forgotten because the upload after it failed. Through `_finish`, not a
     # raw dump - a concurrent apply may have recorded something in between.
@@ -1584,8 +1601,13 @@ def undo(store: Store, client, proposal_id: str, *, today: date | None = None) -
     # off, putting the old day back makes the week hold it twice (iter).
     if p.get("change") and to_restore:
         moved_on = [it for it in p["items"] if it.get("taken_off_by")]
-        if moved_on or removed < len(placed):
+        # Placed as far as anyone knows: a lost answer may mean it is on the
+        # calendar (round 2: undo put Saturday back beside Friday).
+        unsure = [it for it in p["items"] if it.get("schedule_unknown") or it.get("upload_unknown")]
+        if moved_on or unsure or removed < len(placed):
             why = ("a later change moved it on - undo that one first" if moved_on
+                   else "the session that took its place may be on your calendar - look there "
+                        "first" if unsure
                    else "the session that took its place stays on the calendar")
             warnings += [f"\"{r.get('title')}\" is not put back on {r.get('day')}: {why}"
                          for r in to_restore]
@@ -1693,6 +1715,24 @@ def pending_of(p: dict, today: date | None = None) -> int:
                and not it.get("upload_unknown") and not it.get("schedule_unknown")
                and not it.get("taken_off_by")
                and str(it.get("day") or anchor) >= anchor)
+
+
+def _after_removal(store: Store, r: dict, proposal_id: str, warnings: list[str]) -> None:
+    """After an entry came off Garmin: the app's record of where its workout
+    sits, and the proposal that put it there, stay true - that week's undo
+    would otherwise aim at a calendar id that is gone. Each step on its own: a
+    local write that fails neither undoes the removal on Garmin nor skips the
+    other step (iter, round 2)."""
+    sid, wid = int(r["schedule_id"]), r.get("workout_id")
+    for step, what in ((lambda: store.set_workout_schedule(wid, None, None, only_if=sid),
+                        "the app's record of it"),
+                       (lambda: _mark_taken_off(wid, sid, proposal_id), "the plan it came from")):
+        try:
+            step()
+        except Exception as exc:  # noqa: BLE001 — Garmin is right; the record lags
+            log.warning("after removing %s: %s not updated: %r", sid, what, exc)
+            warnings.append(f"\"{r.get('title')}\" came off {r.get('day')}, but {what} could not "
+                            f"be updated ({type(exc).__name__})")
 
 
 def _mark_taken_off(workout_id, schedule_id: int, by: str) -> None:

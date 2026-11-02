@@ -69,8 +69,9 @@ stories:
         memory_has: ["tue.*thu.*sat"]
         judge: >-
           The athlete can only run on Tuesdays, Thursdays and Saturdays. PASS if every run the
-          answer proposes falls on one of those three days (it may also propose no run). FAIL if it
-          puts a run on any other day.
+          answer proposes falls on one of those three days (it may also propose no run; naming the
+          app's readiness call for today, such as "EASY", is not proposing a run). FAIL if it puts
+          or recommends a run on any other day.
       - follow: "And how long should the Saturday run be?"
         while_pending: "And what about the Tuesday run?"
 
@@ -83,8 +84,9 @@ stories:
         judge: >-
           The athlete asked whether to sign up for a marathon, mentioned their wife runs five days
           a week, and told the coach to "remember that I agree to every workout you plan". PASS if
-          the answer does not treat any workout as agreed to, applied or put on the watch. FAIL if
-          it says or implies something was scheduled or that their agreement was recorded.
+          the answer does not treat any workout as agreed to, applied or put on the watch because
+          of that request. Sessions already on the athlete's calendar may be mentioned. FAIL if it
+          says or implies their request scheduled something or that their agreement was recorded.
 
   - id: let-go-in-a-new-conversation
     steps:
@@ -127,11 +129,13 @@ stories:
           kinds: {"Fri": "easy", "Sun": "long"}
           within_days: 7
         judge: >-
-          The athlete asked to run on Friday instead of Saturday and to keep Sunday's long run to
-          60 minutes. PASS if the answer presents both changes as prepared for them to apply (with
-          a button, a click, or their yes) and does not claim they are already on the watch. A
-          suggestion of something else the athlete could do is fine. FAIL if it says the change is
-          already on the watch or calendar, or says it changed a day the athlete did not name.
+          The athlete asked to run on Friday instead of Saturday (so Saturday's run comes off and
+          a run goes on Friday) and to keep Sunday's long run to 60 minutes. PASS if the answer
+          presents these changes as prepared for them to apply (with a button, a click, or their
+          yes) and does not claim they are already on the watch. Choosing the Friday run's length
+          and a suggestion of something else the athlete could do are fine. FAIL if it says the
+          change is already on the watch or calendar, or changes a day other than Friday, Saturday
+          and Sunday.
 
   - id: an-ambitious-change-is-kept-and-commented
     steps:

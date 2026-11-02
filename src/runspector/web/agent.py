@@ -86,14 +86,15 @@ sync_garmin). Rules:
   what it does ("plan your week"), never by its id.
   Only when the task holds the athlete's own words (a question): if they say
   there that they have one of these NOW - "ill" (a cold, a fever), "pain"
-  (something hurts), "sore" (sore or heavy legs), "stressed" - optionally
+  (something hurts), "sore" (sore or heavy legs), "stressed" - add
   "check_in":"<that kind>". The page shows it as a button: their tap tells the
   app, which then holds their days; you never record it yourself. In the
   verdict, point at the button below.
-  Only then, too: optionally "remember", at most 3 LASTING things they say
-  about themselves there - their time, their days, what they like or
-  dislike, their goal, their equipment, an old injury they name - also when
-  they say it inside a question: [{"fact":"<a few words without "I" or
+  Only then, too: whenever their words hold a LASTING thing about
+  themselves - their time, their days, what they like or dislike, their
+  goal, their equipment, an old injury they name, also inside a question -
+  add "remember" with it (at most 3); left out, what they told you is lost
+  for the next card: [{"fact":"<a few words without "I" or
   "they" ("Has 45 minutes on weekdays"), with their meaning: a not stays a
   not, what they are unsure about stays unsure, every number as they wrote
   it - their words for when ("from next week"), never a date you work out>"}].
@@ -460,6 +461,14 @@ def athlete_block(text: str, note: str = "", told: str = "") -> str:
     return out
 
 
+#: A card run whose answer held no card is run ONCE more, told why (model
+#: comparison: Sonnet once answered in prose, and the athlete would have had to
+#: ask again). The ids of the runs on their second try.
+_AGAIN: set[str] = set()
+AGAIN_LINE = ("\n\nYOUR LAST ANSWER HAD NO JSON CARD. Answer again: the one JSON object the "
+              "frame asks for, and nothing else.")
+
+
 def build_prompt(job: dict, athlete: str = "", note: str = "", told: str | None = None) -> str:
     # The previous card goes AFTER the task: if anything is cut off by the cap,
     # it is the memory, never the task. The athlete block goes BEFORE the task,
@@ -472,7 +481,8 @@ def build_prompt(job: dict, athlete: str = "", note: str = "", told: str | None 
     block = athlete_block(athlete, note, told)
     _prev, prev_text = _previous_given(job, block)
     task = (_task_text(job, block) + prev_text)[:PROMPT_CAP + len(block)]
-    return coaching_reference() + task
+    again = AGAIN_LINE if str(job.get("id")) in _AGAIN else ""
+    return coaching_reference() + task + again
 
 
 def _task_text(job: dict, block: str) -> str:
@@ -865,6 +875,12 @@ def _run(job: dict, *, db: str | None, snapshot_meta: dict | None,
         return _finish(job, "failed", rc, (err or out).strip()[-300:] or f"exit {rc}", cost)
 
     card, problem = parse_card(result)
+    if card is None and job["id"] not in _AGAIN and problem == "no JSON card in the answer":
+        _AGAIN.add(job["id"])
+        try:
+            return _run(job, db=db, snapshot_meta=snapshot_meta, athlete=athlete, note=note)
+        finally:
+            _AGAIN.discard(job["id"])
     if card is None:
         return _finish(job, "failed", rc, problem, cost)
     # Never accept self-written feedback - nor a record of its own: `sources`

@@ -212,7 +212,9 @@ def run_story(story: dict, defaults: dict) -> dict:
                         except (KeyError, TypeError, ValueError):
                             secs = None
                         if job.get("status") != "done":
-                            fails.append(f"the card run ended {job.get('status')}: {job.get('error')}")
+                            # The job's own words for why - `error` is no field of a job.
+                            why = job.get("result_summary") or job.get("note") or job.get("error")
+                            fails.append(f"the card run ended {job.get('status')}: {why}")
                         if "ask" in step:
                             last = jid
                         elif "follow" in step:

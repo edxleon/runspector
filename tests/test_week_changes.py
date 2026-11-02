@@ -650,18 +650,20 @@ def test_the_size_note_says_what_it_could_not_count(store, today):
 
 def test_ten_percent_over_last_week_is_said(store, today):
     """The maintainer's words: "more than 10 % volume over last week". Four
-    weeks of 150, a week of 150 made 170 (+13 %): no note, because the plan's
-    size had a 15 % margin before anything was said."""
-    monday = _monday(today)
-    _history(store, monday)
-    specs = [(41, 1, 50), (42, 3, 50), (43, 5, 50)]
+    weeks of 150, this week 150 made 170 (+13 %): no note, because the plan's
+    size had a 15 % margin before anything was said. Last week is one that is
+    over - this week's, measured on its Wednesday."""
+    this_monday = today - timedelta(days=today.weekday())
+    _history(store, this_monday)
+    specs = [(41, 3, 50), (42, 4, 50), (43, 5, 50)]          # Thu, Fri, Sat - all ahead
     for sid, off, mins in specs:
-        _own(store, sid, monday + timedelta(days=off), "easy", mins)
-    _calendar(store, today, [(sid, monday + timedelta(days=off), "Easy", True) for sid, off, _ in specs])
-    p = plan.propose_change(store, [{"action": "add", "day": (monday + timedelta(days=6)).isoformat(),
+        _own(store, sid, this_monday + timedelta(days=off), "easy", mins)
+    _calendar(store, today, [(sid, this_monday + timedelta(days=off), "Easy", True)
+                             for sid, off, _ in specs])
+    p = plan.propose_change(store, [{"action": "add", "day": (this_monday + timedelta(days=6)).isoformat(),
                                      "kind": "easy", "minutes": 20}], today=today)
     (vol,) = [n for n in p["notes"] if "min of running" in n]
-    assert "last week" in vol, vol
+    assert "more than last week's ~150 min" in vol, vol
 
 
 def test_a_change_moved_on_again_is_not_undone_into_a_double(store, today):
@@ -905,3 +907,146 @@ def test_a_change_reads_as_what_happens_to_each_day(store, today):
     ], lines
     out, _ = _app(store).change_week({"edits": [{"schedule_id": 11, "action": "remove"}]})
     assert out["proposal"]["lines"] == [f"{plan._when(monday)}: \"Easy run 24 min\" - taken out"]
+
+
+# ── deep review (iter), round 2 ──────────────────────────────────────────────
+
+def test_next_week_is_not_measured_against_a_week_still_running(store, today):
+    """Round 2: a change to next week compared it with THIS week, still under
+    way - "325 % more than last week's ~40 min"."""
+    monday = _monday(today)                 # next week; today is a Wednesday
+    this_monday = monday - timedelta(weeks=1)
+    _history(store, this_monday)
+    store.upsert_activity(make_activity(88001, this_monday, duration_s=40 * 60, distance_m=6000))
+    for sid, off in ((61, 1), (62, 3), (63, 5)):
+        _own(store, sid, monday + timedelta(days=off), "easy", 50)
+    _calendar(store, today, [(sid, monday + timedelta(days=off), "Easy", True)
+                             for sid, off in ((61, 1), (62, 3), (63, 5))])
+    p = plan.propose_change(store, [{"action": "add", "day": (monday + timedelta(days=6)).isoformat(),
+                                     "kind": "easy", "minutes": 20}], today=today)
+    assert not any("than last week" in n for n in p["notes"]), p["notes"]
+
+
+def test_a_week_with_workouts_of_unknown_length_is_not_called_within_the_plan(store, today):
+    """Round 2: 50 + 50 known, a 90-min club run the app cannot measure, 60
+    added: 160 counted, under the plan's 165 - and no word at all."""
+    monday = _monday(today)
+    _history(store, monday)
+    for sid, off in ((71, 1), (72, 3)):
+        _own(store, sid, monday + timedelta(days=off), "easy", 50)
+    _calendar(store, today, [(71, monday + timedelta(days=1), "Easy", True),
+                             (72, monday + timedelta(days=3), "Easy", True),
+                             (73, monday + timedelta(days=4), "Club run", False)])
+    p = plan.propose_change(store, [{"action": "add", "day": (monday + timedelta(days=6)).isoformat(),
+                                     "kind": "easy", "minutes": 60}], today=today)
+    assert any("not counted" in n or "does not know" in n for n in p["notes"]), p["notes"]
+
+
+def test_an_unclear_removal_that_did_come_off_is_recorded_as_off(store, today):
+    """Round 2: the entry came off, the answer was lost; the fresh calendar
+    shows it gone - and the retry said "did NOT remove ... remove it yourself",
+    so undo then put nothing back."""
+    monday = _the_return_week(store, today)
+    tue = (monday + timedelta(days=1)).isoformat()
+    p = plan.propose_change(store, [{"schedule_id": 12, "action": "remove"}], today=today)
+
+    class GoneButUnclear(_CalendarFake):
+        def unschedule_workout(self, sid):
+            super().unschedule_workout(sid)
+            raise TimeoutError("read timed out")
+
+    g = GoneButUnclear(schedule={12: {"workoutId": 4012, "date": tue}}, calendar_down=True)
+    plan.apply(store, g, p["id"], today=today)
+    g.data["calendar_down"] = False
+    out = plan.apply(store, g, p["id"], today=today)
+    r = plan.read(p["id"], store)["replaces"][0]
+    assert r["removed"] is True, (r, out.get("warnings"))
+    assert not any("remove it yourself" in w for w in out.get("warnings") or []), out["warnings"]
+    plan.undo(store, g, p["id"], today=today)
+    assert any(e["workoutId"] == 4012 for e in g.data["schedule"].values()), "undo puts it back"
+
+
+def test_undo_of_a_change_whose_new_session_may_be_on_the_calendar_puts_nothing_back(store, today):
+    """Round 2: the new Friday session's scheduling answer was lost - undo put
+    Saturday back beside it."""
+    monday = _the_return_week(store, today)
+    fri, sat = monday + timedelta(days=4), monday + timedelta(days=5)
+    p = plan.propose_change(store, [{"schedule_id": 16, "action": "move", "day": fri.isoformat()}],
+                            today=today)
+
+    class ScheduleUnclear(FakeGarmin):
+        def schedule_workout(self, wid, d):
+            super().schedule_workout(wid, d)
+            raise TimeoutError("read timed out")
+
+    g = ScheduleUnclear(schedule={16: {"workoutId": 4016, "date": sat.isoformat()}})
+    plan.apply(store, g, p["id"], today=today)
+    assert plan.read(p["id"], store)["items"][0].get("schedule_unknown"), "the setup holds"
+    plan.undo(store, g, p["id"], today=today)
+    assert not any(e["date"] == sat.isoformat() for e in g.data["schedule"].values()), g.data["schedule"]
+
+
+def test_the_mark_on_the_week_holds_when_the_record_cannot_be_written(store, today, monkeypatch):
+    """Round 2: both bookkeeping steps in one try - the record failing left
+    the week's item unmarked, and its change offered for undo."""
+    monday = _the_return_week(store, today)
+    fake = FakeGarmin(schedule={11: {"workoutId": 4011, "date": monday.isoformat()}})
+    c1 = plan.propose_change(store, [{"schedule_id": 11, "action": "move",
+                                      "day": (monday + timedelta(days=3)).isoformat()}], today=today)
+    plan.apply(store, fake, c1["id"], today=today)
+    placed = plan.read(c1["id"], store)["items"][0]
+
+    def broken(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(store, "set_workout_schedule", broken)
+    c2 = plan.propose_change(store, [{"schedule_id": placed["schedule_id"], "action": "move",
+                                      "day": (monday + timedelta(days=4)).isoformat()}], today=today)
+    plan.apply(store, fake, c2["id"], today=today)
+    assert plan.read(c1["id"])["items"][0].get("taken_off_by") == c2["id"]
+
+
+def test_a_removal_left_unclear_stays_in_the_strip(store, today):
+    """Round 2 nit: an unclear removal stayed open and dropped out of the
+    strip on a reload - the "apply again" its warning asks for was gone."""
+    monday = _the_return_week(store, today)
+    p = plan.propose_change(store, [{"schedule_id": 12, "action": "remove"}], today=today)
+
+    class Unclear(_CalendarFake):
+        def unschedule_workout(self, sid):
+            raise TimeoutError("read timed out")
+
+    plan.apply(store, Unclear(schedule={12: {"workoutId": 4012,
+                                             "date": (monday + timedelta(days=1)).isoformat()}}),
+               p["id"], today=today)
+    assert [c["id"] for c in plan.changes_on_calendar(store)] == [p["id"]]
+
+
+def test_an_answer_without_a_card_is_asked_for_once_more(tmp_path, monkeypatch, today):
+    """Model comparison: Sonnet once answered a question in prose, and the card
+    was discarded - the athlete would have had to ask again. Once more, told
+    why; a second miss still fails."""
+    import json as _json
+
+    from runspector.web import agent, jobs
+
+    calls = []
+    card = {"headline": "h", "bullets": ["[derived] b"], "verdict": "v"}
+
+    def fake(job, db, athlete="", note=""):
+        calls.append(agent.build_prompt(job, athlete, note, told=""))
+        text = "Here is my answer in prose." if len(calls) == 1 else _json.dumps(card)
+        return 0, _json.dumps({"result": text, "total_cost_usd": 0.01, "num_turns": 3}), ""
+
+    monkeypatch.setattr(agent, "_run_once", fake)
+    job = jobs.new_job("p", title="t", kind="why-vo2max")
+    done = agent.run(job, db=str(tmp_path / "x.db"))
+    assert done["status"] == "done" and len(calls) == 2, done
+    assert "no json card" in calls[1].lower() and "no json card" not in calls[0].lower()
+
+    calls.clear()
+    monkeypatch.setattr(agent, "_run_once", lambda job, db, athlete="", note="": (
+        calls.append(1) or (0, _json.dumps({"result": "prose", "total_cost_usd": 0.0,
+                                             "num_turns": 3}), "")))
+    again = jobs.new_job("p", title="t", kind="why-vo2max")
+    assert agent.run(again, db=str(tmp_path / "x.db"))["status"] == "failed" and len(calls) == 2
