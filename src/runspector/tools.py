@@ -190,7 +190,7 @@ def get_athlete_profile(store: Store) -> str:
                 f"{profile.NOTE_RULE}")
     told = profile.told_text()
     if told:
-        out += (f"\n\nWhat they told the coach while asking, kept from their own words:\n{told}\n"
+        out += (f"\n\nWhat they told the coach while asking, noted from their questions:\n{told}\n"
                 f"{profile.TOLD_RULE}")
     return out
 

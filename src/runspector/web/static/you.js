@@ -342,22 +342,24 @@ export function recordCard(rec) {
  *  `ui` the editor's state from app.js: `{draft, error, saving, note, noteError}`,
  *  `record` the state's `ai_record`. */
 /** What the athlete told the coach while asking on a card, and it kept
- *  (roadmap 25): each fact with their own words and the day, and a way to let
+ *  (roadmap 25): each fact with the question it comes from and the day, and a way to let
  *  it go. Shown empty too - it says how something gets here. */
 export function toldCard(week) {
   if (!week) return "";
   const told = Array.isArray(week.told) ? week.told : [];
   const rows = told.slice().reverse().map(t => `<li class="told-row">
-      <div class="told-text">"${esc(t.text || "")}"</div>
-      <div class="note">you said it${t.day ? ` on ${esc(t.day)}` : ""}
+      <div class="told-text">${esc(t.text || "")}${
+        t.instead ? ` <span class="note">(instead of: ${esc(t.instead)})</span>` : ""}</div>
+      <div class="note">${t.said ? `from what you asked${t.day ? ` on ${esc(t.day)}` : ""}: "${esc(t.said)}"`
+                                 : `you said it${t.day ? ` on ${esc(t.day)}` : ""}`}
         <button type="button" class="linkish" data-forget="${esc(t.id || "")}"
                 data-arm-label="Forget? Tap again">Forget</button></div></li>`).join("");
   return `<div class="card you-told">
     <div class="subhead">What you told the coach</div>
-    <div class="note">When you ask the coach something and say something lasting about yourself - your
-      time on weekdays, what you like, an old injury - it keeps your words here and reads them before
-      every answer. Forget anything that is not right: the coach no longer reads it, and the question it
-      came from stays until you delete that card.</div>
+    <div class="note">When you ask the coach something and mention something lasting about yourself - your
+      time on weekdays, your goal, an old injury - it notes it here, after checking it against what you
+      wrote, and reads it before every answer. Forget anything that is not right: the coach no longer
+      reads it, and the question it came from stays until you delete that card.</div>
     ${rows ? `<ul class="told-list">${rows}</ul>`
            : `<div class="empty-note">Nothing yet.</div>`}
   </div>`;

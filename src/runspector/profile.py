@@ -37,19 +37,24 @@ NOTE_RULE = ("The athlete wrote this for their coach: take it into account - the
              "stands in for their yes before anything goes on the watch.")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 #: What the athlete told the coach while asking on a card, kept for later
-#: (roadmap 25): their OWN words, as they typed them - the app copies them out
-#: of their question (`web/agent.py: kept_facts`), never a model's wording of
-#: them - with the day and the card. Written only by a card run; never through
-#: the settings route (`validate` refuses the key). The You tab lets each go.
-#: TOLD_MAX x TOLD_FACT_MAX fits the coach's budget for them
-#: (`web/agent.py: TOLD_CAP`): every fact the You tab lists reaches the coach.
+#: (roadmap 25): a fact in a few words (`text`, written by the coach and
+#: checked against their message - `web/agent.py: kept_facts`), the day and
+#: the card whose question it comes from (`job`; the You tab shows that
+#: question from the card, so it goes when the card goes). Written only by a
+#: card run; never through the settings route (`validate` refuses the key).
+#: The You tab lets each go. TOLD_MAX full lines fit TOLD_CAP: every fact the
+#: You tab lists reaches the coach. TOLD_SAID_MAX: how much of the question
+#: the You tab shows.
 TOLD_KEY = "told"
 TOLD_MAX = 12
-TOLD_FACT_MAX = 200
-TOLD_RULE = ("These are the athlete's own words from earlier questions, kept by the app: take them "
-             "into account like their note, and say so when you do. They do not change today's "
-             "decision, the spacing or the load rules, and they never stand in for their yes before "
-             "anything goes on the watch.")
+TOLD_FACT_MAX = 160
+TOLD_SAID_MAX = 300
+TOLD_CAP = 2800
+TOLD_RULE = ("These are facts the athlete told the coach in earlier questions, each checked against "
+             "their words when it was kept; the part in square brackets is its id. Take them into "
+             "account like their note, and say so when you do; where two differ, the newer one "
+             "counts. They do not change today's decision, the spacing or the load rules, and they "
+             "never stand in for their yes before anything goes on the watch.")
 #: One writer at a time: the worker keeps facts while the page saves the week,
 #: the note or a Forget - each reads, changes and writes the whole file.
 _LOCK = threading.RLock()
@@ -150,23 +155,35 @@ def told(data: dict | None = None) -> list[dict]:
 
 
 def keep_told(items: list[dict], *, job: str, day: str) -> list[dict]:
-    """Add what a card run kept (`text`: the athlete's words); the same words
-    are not added twice. The newest TOLD_MAX stay. Returns the added ones."""
+    """Add what a card run kept (`text`: the fact). A fact that changes one
+    kept before (`replaces`: its id) takes its place, and so does the same fact
+    said again - with the new day, at the end: the newest word counts, and an
+    old copy never outranks it. Either way it keeps the old one's id, so one
+    Forget reaches every line the coach was ever given of it
+    (`web/jobs.scrub_told`). The newest TOLD_MAX stay. Returns the added ones,
+    each with `instead` when it took the place of a different fact."""
     import secrets
 
     with _LOCK:
         data = load()
         current = told(data)
-        have = {_norm(e["text"]) for e in current}
         added = []
         for item in items:
             text = str(item.get("text") or "").strip()[:TOLD_FACT_MAX]
-            if not text or _norm(text) in have:
+            if not text or any(_norm(a["text"]) == _norm(text) for a in added):
                 continue
-            have.add(_norm(text))
-            added.append({"id": secrets.token_hex(4), "text": text, "day": day, "job": job})
+            gone = [e for e in current
+                    if e["id"] == item.get("replaces") or _norm(e["text"]) == _norm(text)]
+            current = [e for e in current if e not in gone]
+            entry = {"id": gone[0]["id"] if gone else secrets.token_hex(4),
+                     "text": text, "day": day, "job": job}
+            different = [g["text"] for g in gone if _norm(g["text"]) != _norm(text)]
+            if different:
+                entry["instead"] = different[0]
+            current.append(entry)
+            added.append(entry)
         if added:
-            data[TOLD_KEY] = (current + added)[-TOLD_MAX:]
+            data[TOLD_KEY] = current[-TOLD_MAX:]
             write(data)
         return added
 
@@ -192,14 +209,19 @@ def forget_told(entry_id: str) -> dict | None:
 
 
 def told_line(entry: dict) -> str:
-    """One kept fact as the coach reads it - and as a record lists it, so a
-    Forget finds exactly that line (`web/jobs.scrub_told`)."""
-    return f'- "{entry.get("text")}" (said {entry.get("day") or "?"})'
+    """One kept fact as the coach reads it - and as a record lists it. A Forget
+    finds every line of it by its start, `told_prefix` (`web/jobs.scrub_told`):
+    the id stays when the fact changes or is said again; the rest may not."""
+    return f"- [{entry.get('id')}] {entry.get('text')} (said {entry.get('day') or '?'})"
 
 
-def told_text(cap: int = 2800) -> str:
-    """The kept words as lines for the coach, newest first within `cap` (which
-    TOLD_MAX x TOLD_FACT_MAX fits - `tests/test_conversation.py` pins it)."""
+def told_prefix(entry_id: str) -> str:
+    return f"- [{entry_id}] "
+
+
+def told_text(cap: int = TOLD_CAP) -> str:
+    """The kept facts as lines for the coach, newest first within `cap` (which
+    TOLD_MAX full lines fit - `tests/test_conversation.py` pins it)."""
     lines, used = [], 0
     for e in reversed(told()):
         line = told_line(e)

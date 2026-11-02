@@ -445,7 +445,7 @@ export function renderCard(c, opts = {}) {
       ? `<details class="card-more card-respond" ${det("respond")}${value ? " open" : ""}>
            <summary>Feedback${value ? (value === "good" ? " · 👍" : " · 👎") : ""}</summary>${fb}</details>` : "";
     body = `<div class="card-body">${content || `<div class="empty-note">No content.</div>`}${
-      proposal}${renderNext(id, c.next, c.parent || id)}${evidence}${metaLine}${respond}</div>`;
+      proposal}${renderCheckIn(c.check_in)}${renderNext(id, c.next, c.parent || id)}${evidence}${metaLine}${respond}</div>`;
   }
   // The conversation's question field stands under the whole thread - the
   // card and every answer in it (roadmap 25) - not in the feedback, and only
@@ -613,6 +613,24 @@ export const NEXT_TITLE = {
   "week-review": "Review my training week", "why-vo2max": "Why is VO2max moving?",
 };
 
+/** A check-in the card offers where the athlete said "it hurts" or "I have a
+ *  cold": the Today tab's own button (app.js handles `data-check-in`), so a
+ *  new conversation knows it too - the coach only points at it, their tap
+ *  says it. The server lists it only on the day the card was written: a tap
+ *  says it for today, and a card from last week is no word about now. */
+//: The Today tab's own words for them (`logic.js: CHECK_IN_LABEL`): one name per button.
+export const CHECK_IN_TITLE = { ill: "Ill", pain: "Pain", sore: "Sore legs", stressed: "Stressed" };
+const CHECK_IN_EFFECT = { ill: "no run while it lasts", pain: "no run while it lasts",
+                          sore: "nothing hard while it lasts", stressed: "nothing hard while it lasts" };
+
+export function renderCheckIn(kind) {
+  if (!Object.hasOwn(CHECK_IN_TITLE, kind)) return "";
+  return `<div class="card-next"><span class="card-next-k">Tell the app</span><span class="card-next-one">
+    <button type="button" class="btn btn-quiet" data-check-in="${esc(kind)}" data-check-in-do="say">${
+      esc(CHECK_IN_TITLE[kind])}</button><span class="note">${esc(CHECK_IN_EFFECT[kind])} - the Today tab
+      shows it and you end it there</span></span></div>`;
+}
+
 /** The next steps a card offers - each a button that starts that card with
  *  this conversation as its context (two taps: a run is not free). */
 export function renderNext(id, next, root = id) {
@@ -625,13 +643,15 @@ export function renderNext(id, next, root = id) {
        n.why ? `<span class="note">${esc(n.why)}</span>` : ""}</span>`).join("")}</div>`;
 }
 
-/** What the card kept of the athlete's own words - as the server keeps them
- *  now (a fact let go is no longer listed) - with a way to let each go. */
+/** What the card noted from the athlete's words - as the server keeps it now
+ *  (a fact let go is no longer listed), and what it took the place of - with
+ *  a way to let each go. The question it comes from is on the You tab. */
 export function renderTold(told) {
   const items = (Array.isArray(told) ? told : []).filter(t => t && t.id && t.text);
   if (!items.length) return "";
   return `<div class="card-told">${items.map(t =>
-    `<div class="card-told-one"><span class="card-told-k">Noted for later</span> "${esc(t.text)}"
+    `<div class="card-told-one"><span class="card-told-k">Noted for later</span> ${esc(t.text)}${
+      t.instead ? ` <span class="note">(instead of: ${esc(t.instead)})</span>` : ""}
       <button type="button" class="linkish" data-forget="${esc(t.id)}"
         data-arm-label="Forget? Tap again">Forget</button></div>`).join("")}</div>`;
 }

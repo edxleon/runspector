@@ -495,13 +495,30 @@ question field stands under the thread, not in the feedback. A next step as a bu
 offer at most two from the app's own menu (plan the week, should I train today, review the week, why
 VO2max moves), each a button that starts that card with the conversation as its context; nothing
 reaches the watch without the yes it always needs. And a memory of what the athlete said: the coach
-may note a lasting fact from the athlete's own words - their time, what they like, their goal, an old
-injury they mention - with the exact words it comes from, and the app keeps it only if those words are
-in what the athlete wrote, never from data or a tool's text. The answer says "Noted for later" with a
-way to undo it, the You tab lists each fact with its date and lets them go one by one, and the coach
-reads them before every answer like the athlete's note. Passing states stay with the check-in buttons.
+may note a lasting fact from what the athlete wrote - their time, what they like, their goal, an old
+injury they mention, also inside a question - in a few words, every number one they wrote. Before it
+is kept, a second, small model call with no tools and nothing but the athlete's message checks it,
+and keeps it only when the message says it with its meaning - not asked, not doubted, not turned
+round, not about someone else, not a pain of today; any failure keeps nothing. A fact that changes
+one kept before takes its place - only when the check, shown that one too, finds the message changes
+it - and keeps its id, so one Forget reaches every copy; the same fact said again moves to the newest.
+The profile holds the fact, not the question: the You tab shows the question from its card, and it
+goes when the card goes. The answer says
+"Noted for later" with a way to undo it, the You tab lists each fact with the question it comes from
+and its date and lets them go one by one, and the coach reads them before every answer like the
+athlete's note. Two first versions matched the athlete's words by rule instead: whole sentences
+without a "?" kept almost nothing people write ("I only have 40 minutes on weekdays, how do I
+start?"), and a sentence rule beside a freely written fact let "not" drop out of the fact. A pain
+or a cold is never a fact to keep: where the athlete names one, the card offers the Today tab's
+check-in as a button, and their tap is what a new conversation knows it by (without it, "my calf
+twinges" was rest in that conversation and a filed run for the next morning in the next). Passing states stay with the check-in buttons.
 
 ## Smaller
+
+- What the athlete tells the coach reaches the coach, not the planner: "I can only run on Tuesdays,
+  Thursdays and Saturdays" was kept and respected by the coach, which then refused the week the
+  planner built on their usual Mon/Tue/Sat. The days the planner goes by are the You tab's week;
+  a card that hears new days could offer them for it as a button, the way it offers a check-in.
 
 - Strength and cycling count as hard days and keep the quality run off their day and the next
   (good), but get no slot of their own in a planned week; what kind of strength day it was is 18.

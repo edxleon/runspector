@@ -422,7 +422,7 @@ test("renderCard: what changed since the last card sits with the further points"
 
 /* ── A card as a conversation (roadmap 25) ─────────────────────────────── */
 
-import { renderNext, renderTold, NEXT_TITLE } from "../src/runspector/web/static/cards.js";
+import { renderCheckIn, renderNext, renderTold, NEXT_TITLE, CHECK_IN_TITLE } from "../src/runspector/web/static/cards.js";
 
 test("a next step is a button with the app's own title, the coach's why beside it", () => {
   const html = renderNext("j-1", [{ action: "plan-week", why: "for your <b>return</b> week" },
@@ -435,9 +435,11 @@ test("a next step is a button with the app's own title, the coach's why beside i
   assert.deepEqual(Object.keys(NEXT_TITLE).sort(), ["plan-week", "train-today", "week-review", "why-vo2max"]);
 });
 
-test("what a card kept says so, in the athlete's words, with a way to let go", () => {
-  const html = renderTold([{ id: "deadbeef", text: "I have <45> minutes" }]);
-  assert.match(html, /Noted for later<\/span> "I have &lt;45&gt; minutes"/);
+test("what a card noted says so, with a way to let go", () => {
+  const html = renderTold([{ id: "deadbeef", text: "Has <45> minutes on weekdays", instead: "Has <30>" }]);
+  assert.match(html, /Noted for later<\/span> Has &lt;45&gt; minutes on weekdays/);
+  assert.match(html, /\(instead of: Has &lt;30&gt;\)/);
+  assert.doesNotMatch(renderTold([{ id: "a", text: "x y z" }]), /instead of/);
   assert.match(html, /data-forget="deadbeef"/);
   assert.equal(renderTold(null), "");
 });
@@ -470,10 +472,26 @@ test("Should I train today? started from a card is the day's card", () => {
   assert.equal(todayCard([{ ...c, via: null }], "2026-11-01"), null, "an answer in a thread is not");
 });
 
-test("the You tab lists what the coach kept, with the athlete's words and a way to let go", async () => {
+test("the You tab lists each fact with the question it comes from and a way to let go", async () => {
   const { toldCard } = await import("../src/runspector/web/static/you.js");
-  const html = toldCard({ told: [{ id: "deadbeef", text: "I run <early>", day: "2026-11-01" }] });
+  const html = toldCard({ told: [{ id: "deadbeef", text: "Runs <early>", day: "2026-11-01",
+                                   said: "I run <early>, can I add a second run?" }] });
   assert.match(html, /What you told the coach/);
-  assert.match(html, /"I run &lt;early&gt;".*you said it on 2026-11-01.*data-forget="deadbeef"/s);
+  assert.match(html, /Runs &lt;early&gt;<\/div>.*from what you asked on 2026-11-01: "I run &lt;early&gt;, can I add a second run\?".*data-forget="deadbeef"/s);
   assert.match(toldCard({ told: [] }), /Nothing yet/);
+});
+
+test("a card offers the check-in the athlete named as the Today tab's own button", () => {
+  const html = renderCheckIn("pain");
+  assert.match(html, /data-check-in="pain" data-check-in-do="say">Pain</);
+  assert.match(html, /no run while it lasts/);
+  assert.equal(renderCheckIn("fever"), "");
+  assert.equal(renderCheckIn("__proto__"), "");
+  assert.equal(renderCheckIn(null), "");
+  assert.deepEqual(Object.keys(CHECK_IN_TITLE).sort(), ["ill", "pain", "sore", "stressed"]);
+  // The server lists it only on the day the card was written (`jobs.public_cards`).
+  const card = { id: "j-1", kind: "ask", question: "q", headline: "h", verdict: "v", bullets: ["b"],
+                 check_in: "sore", day: "2026-08-20" };
+  assert.match(renderCard(card, { open: true }), /data-check-in="sore"/);
+  assert.doesNotMatch(renderCard({ ...card, check_in: null }, { open: true }), /data-check-in=/);
 });

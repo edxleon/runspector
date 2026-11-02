@@ -316,11 +316,14 @@ def scrub_told(entry: dict) -> None:
     if not words:
         return
     from .. import evidence, profile
-    line_of = profile.told_line(entry)
+    # Every line of this fact, by its id: it keeps its id when it changes or is
+    # said again, so a record from before still holds it under an older day or
+    # wording - and the athlete has no other way to reach that copy.
+    prefix = profile.told_prefix(str(entry.get("id") or ""))
 
     def without(text):
-        if isinstance(text, str) and line_of in text.splitlines():
-            return "\n".join(line for line in text.splitlines() if line != line_of), True
+        if isinstance(text, str) and any(line.startswith(prefix) for line in text.splitlines()):
+            return "\n".join(line for line in text.splitlines() if not line.startswith(prefix)), True
         return text, False
 
     # Every stored text that held the line: what a card was given, and what a
@@ -375,10 +378,12 @@ def public_cards(limit: int = 10) -> list[dict]:
     keep_set = set(keep[:limit])
     # What each card kept, from where it is kept - a card's own field could be
     # older than the guard that writes it now.
-    from .. import profile
+    from .. import logic, profile
     kept: dict[str, list[dict]] = {}
     for e in profile.told():
-        kept.setdefault(str(e.get("job") or ""), []).append({"id": e["id"], "text": _cap(e["text"], 200)})
+        kept.setdefault(str(e.get("job") or ""), []).append(
+            {"id": e["id"], "text": _cap(e["text"], 200),
+             **({"instead": _cap(e["instead"], 200)} if isinstance(e.get("instead"), str) else {})})
     for cid, c in listed:
         if roots[cid] not in keep_set:
             continue
@@ -420,6 +425,13 @@ def public_cards(limit: int = 10) -> list[dict]:
             "next": _public_next(c.get("next")),
             "told": kept.get(cid) or None,
             "via": "next" if c.get("via") == "next" else None,
+            # A check-in the athlete can tap from the card - the app's own kinds
+            # only, and only the day the card was written: a tap says it for
+            # today. By when it was WRITTEN, never its `day` - the model's,
+            # which is a run's date on a run's card.
+            "check_in": (c.get("check_in") if c.get("check_in") in logic.CHECK_IN_KINDS
+                         and str(c.get("generated_at") or "")[:10] == paths.today().isoformat()
+                         else None),
         })
     return out
 

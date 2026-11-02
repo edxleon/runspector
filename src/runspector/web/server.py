@@ -521,7 +521,9 @@ class App:
         template_id = str(op.get("template_id") or "").strip()
         from_job = str(op.get("from_job") or "").strip()
         from_card = str(op.get("from_card") or "").strip()
-        question = str(op.get("prompt") or "").strip()
+        # Cleaned like an Ask: a line separator in a follow-up split a kept
+        # fact's line in two, and a Forget missed every stored copy of it.
+        question = (garmin._clean_text(str(op.get("prompt") or ""), PROMPT_MAX + 1) or "").strip()
         asked = str(op.get("question") or "").strip()
         if sum(map(bool, (template_id, from_job, asked))) != 1:
             return {"error": "send exactly one of template_id / from_job / question"}, 400
@@ -619,12 +621,22 @@ class App:
         return {"ok": True, "job": jobs.public(job)}, 200
 
     def week(self) -> dict | None:
-        """The You tab's editor: what the athlete set, what the history says."""
+        """The You tab's editor: what the athlete set, what the history says -
+        and each kept fact with the question it comes from, read from its card:
+        a deleted card takes its question with it."""
         try:
-            return facts.week_settings(self.store, paths.today())
+            week = facts.week_settings(self.store, paths.today())
         except Exception as exc:  # noqa: BLE001 — the editor, never the page
             log.warning("week settings unavailable: %s: %s", type(exc).__name__, exc)
             return None
+        for t in week.get("told") or []:
+            card_id = str(t.pop("job", "") or "")
+            card = jobs.read_card(card_id) if jobs.ID_RE.fullmatch(card_id) else None
+            asked = " ".join(str((card or {}).get("question") or "").split())
+            if asked:
+                t["said"] = (asked if len(asked) <= profile_mod.TOLD_SAID_MAX
+                             else asked[:profile_mod.TOLD_SAID_MAX - 1].rstrip() + "…")
+        return week
 
     def save_profile(self, op: dict) -> tuple[dict, int]:
         """The athlete's week settings from the You tab: `{"set": {key: value}}`,
@@ -882,7 +894,9 @@ def _card_lines(card: dict, *, full: bool = True) -> list[str]:
 
 def _reply_lines(reply: dict, *, full: bool) -> list[str]:
     # Each round with its day: "my calf hurts" from Monday is not Thursday's state.
-    day = str(reply.get("day") or "?")[:10]
+    # The day it was ASKED - when the answer was written - not the card's `day`,
+    # which on a run's card is the run's date.
+    day = str(reply.get("generated_at") or reply.get("day") or "?")[:10]
     asked = str(reply.get("question") or "").strip()
     return (["", f"On {day} the athlete asked: {asked[:1000]}" if asked
              else f"On {day}, a {reply.get('kind') or 'card'} card:", "Answer:"]
