@@ -116,3 +116,12 @@ test("stripDays: next week can be opened in the strip", async () => {
   assert.deepEqual(stripDays({ days: [{ day: "2026-11-02" }] }, 1).map(d => d.day), ["2026-11-02"],
                    "no next week in the data: this week");
 });
+
+test("askedHtml: a run waiting for the Claude quota says so", async () => {
+  // Live use: a move asked in words "ran" ten minutes - the coach had waited for
+  // the athlete's Claude quota, and the strip said only "working".
+  const { askedHtml } = await import("../src/runspector/web/static/week.js");
+  const html = askedHtml({ id: "j-1", status: "running", note: "waiting for quota" }, null, "");
+  assert.match(html, /Claude quota/);
+  assert.match(html, /tap the day/i, "and the way that needs no coach");
+});

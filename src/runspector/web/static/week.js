@@ -139,6 +139,13 @@ export function askedHtml(job, card, proposalHtml = "") {
   }
   if (!job) return "";
   if (job.status === "queued" || job.status === "running") {
+    // Live use: a move asked in words "ran" ten minutes - it had waited for the
+    // athlete's Claude quota, and this said only "working".
+    if (/quota/i.test(String(job.note || ""))) {
+      return `<div class="plan-asked plan-working"><span class="busy-ring" aria-hidden="true"></span>
+        Waiting for your Claude quota - the coach starts by itself once it is back. A move or
+        another length needs no coach: tap the day in the strip.</div>`;
+    }
     return `<div class="plan-asked plan-working"><span class="busy-ring" aria-hidden="true"></span>
       The coach is working on your change - its answer appears here, with the button for the
       watch.</div>`;

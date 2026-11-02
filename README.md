@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1589 tests, 149 frontend tests and that gate on three operating systems and two Python versions, with every
+1589 tests, 151 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -473,7 +473,7 @@ is not in this record.
 | `RUNSPECTOR_HOME` | `~/.runspector` | data directory |
 | `RUNSPECTOR_TZ` | system zone | IANA zone for "which day was this run" |
 | `RUNSPECTOR_TOKEN` | – | required for `--host 0.0.0.0` (phone in your home network) |
-| `RUNSPECTOR_MODEL` | CLI default | model for coach cards |
+| `RUNSPECTOR_MODEL` | `sonnet` | model for coach cards |
 | `RUNSPECTOR_GARMIN_TOKENS` | `~/.runspector/garmin` | reuse an existing python-garminconnect token dir |
 | `RUNSPECTOR_AUTOSYNC_MIN` | `30` | in a Claude Code / Desktop chat, `get_training_readiness` syncs first when the last sync is older than this; `0` turns it off |
 | `RUNSPECTOR_QUOTA_WAIT_S` | `3600` | how long a job waits for subscription quota |

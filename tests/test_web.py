@@ -190,7 +190,9 @@ def test_command_is_an_allowlist(tmp_path, monkeypatch):
     assert cmd[cmd.index("--output-format") + 1] == "stream-json" and "--verbose" in cmd
     assert "--dangerously-skip-permissions" not in cmd
     assert "--safe-mode" not in cmd                           # it would disable our MCP server too
-    assert "--model" not in cmd
+    # The coach's model is named - not the CLI's default, which follows the
+    # athlete's own Claude Code setting (latency; `agent.COACH_MODEL`).
+    assert cmd[cmd.index("--model") + 1] == agent.COACH_MODEL
 
     cfg = json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8"))
     assert cmd[cmd.index("--mcp-config") + 1] == str(tmp_path / "mcp.json")
@@ -287,6 +289,8 @@ def test_run_round_trip_writes_a_validated_card(stub_cli, tmp_path, today):
     assert "Should I train today?" in (stub_cli / "stdin.txt").read_text(encoding="utf-8")
     argv = json.loads((stub_cli / "argv.json").read_text(encoding="utf-8"))
     assert argv[argv.index("--tools") + 1] == "" and "--strict-mcp-config" in argv
+    # The coach's model is named, never the CLI's default (latency, measured).
+    assert argv[argv.index("--model") + 1] == agent.COACH_MODEL == "sonnet"
     denied = argv[argv.index("--disallowedTools") + 1].split(",")
     assert denied == ["mcp__runspector__apply_workout", "mcp__runspector__undo_workout",
                       "mcp__runspector__check_in"], \

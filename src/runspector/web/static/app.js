@@ -1518,6 +1518,9 @@ function renderJobs() {
     const word = busy.querySelector(".busy-word");
     if (word) word.textContent = n > 1 ? `Coach working · ${n}` : "Coach working";
   }
+  // The answer asked under the strip follows its job on every poll - also
+  // "waiting for your Claude quota", which only the job's note says.
+  if (planEdit.asked) renderWeek();
 }
 
 function renderCoach() {

@@ -149,6 +149,11 @@ _MARKER_RE = re.compile(r"-{3,}|<{2,}|>{2,}|\b(?:END|BEGIN)\s+[A-Z]{3,}\b"
 #: a change it did not make); sonnet with the deciding words first 126 of 129,
 #: its one miss a note with fake markers - which `_MARKER_RE` now drops before
 #: the check. Every run is in `evals/MEMORY_CHECK_LOG.md`.
+#: The model a coach card runs on (`RUNSPECTOR_MODEL` overrides). Sonnet for
+#: the time a card takes - the maintainer, after a move asked in words: "I just
+#: want the latency of these requests better". Measured against Opus on the
+#: app's own evals before the switch (evals/MODELS.md).
+COACH_MODEL = "sonnet"
 VERIFY_MODEL = "sonnet"
 VERIFY_TIMEOUT_S = 120
 
@@ -567,8 +572,9 @@ def command(workdir: Path, db: str | None) -> list[str]:
            # the athlete can say they are ill. Configuration, not a sentence
            # in coach.md - a prompt is not a permission system.
            "--disallowedTools", ",".join(DENIED_TOOLS)]
-    if os.environ.get("RUNSPECTOR_MODEL"):
-        cmd += ["--model", os.environ["RUNSPECTOR_MODEL"]]
+    # The coach's model, always named: the CLI's default follows whatever the
+    # athlete's Claude Code is set to, and a card waited minutes on it.
+    cmd += ["--model", os.environ.get("RUNSPECTOR_MODEL") or COACH_MODEL]
     return cmd
 
 

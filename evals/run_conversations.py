@@ -178,7 +178,7 @@ def run_story(story: dict, defaults: dict) -> dict:
         try:
             for n, step in enumerate(story["steps"], 1):
                 fails, note = [], ""
-                card, job = {}, {}
+                card, job, secs = {}, {}, None
                 if "forget" in step:
                     hit = [e for e in srv.kept() if re.search(step["forget"], e["text"], re.I)]
                     if not hit:
@@ -204,6 +204,13 @@ def run_story(story: dict, defaults: dict) -> dict:
                                              f"{sp2.get('code')}, not 409 answer_pending")
                         job = srv.wait(jid, timeout)
                         card = srv.read("cards", f"{jid}.json") or {}
+                        # How long the athlete waited for this card - the reason
+                        # the coach's model was chosen (latency).
+                        try:
+                            secs = (datetime.fromisoformat(job["finished"])
+                                    - datetime.fromisoformat(job["started"])).total_seconds()
+                        except (KeyError, TypeError, ValueError):
+                            secs = None
                         if job.get("status") != "done":
                             fails.append(f"the card run ended {job.get('status')}: {job.get('error')}")
                         if "ask" in step:
@@ -245,7 +252,7 @@ def run_story(story: dict, defaults: dict) -> dict:
                     note = why
                     if not passed:
                         fails.append(f"judge: {why}")
-                out["steps"].append({"n": n, "ok": not fails, "fails": fails, "judge": note,
+                out["steps"].append({"n": n, "ok": not fails, "fails": fails, "judge": note, "secs": secs,
                                      "answer": _answer(card) if card else "", "kept": texts,
                                      "check_in": card.get("check_in"), "next": card.get("next")})
                 out["failures"] += [f"step {n}: {f}" for f in fails]
@@ -276,8 +283,11 @@ def main() -> int:
         for f in r["failures"]:
             print(f"     {f}")
     minutes = (time.monotonic() - t0) / 60
-    print(f"{ok}/{steps} steps right, {len(results)} stories, {minutes:.0f} min")
-    model = os.environ.get("RUNSPECTOR_MODEL") or "the CLI's default"
+    took = sorted(s["secs"] for r in results for s in r["steps"] if s.get("secs") is not None)
+    median = took[len(took) // 2] if took else None
+    print(f"{ok}/{steps} steps right, {len(results)} stories, {minutes:.0f} min"
+          + (f", a card took {median:.0f} s (median), {took[-1]:.0f} s at most" if took else ""))
+    model = os.environ.get("RUNSPECTOR_MODEL") or "sonnet (the app's default)"
     if args.story is None:
         rows = "\n".join(f"| {r['id']} | {'PASS' if not r['failures'] else 'FAIL'} | "
                          f"{'<br>'.join(r['failures']) or '-'} |" for r in results)
@@ -292,8 +302,9 @@ def main() -> int:
                 log.write("# Conversations with the coach - every full run\n\n"
                           "| when | coach model | right | failed stories | note |\n|---|---|---|---|---|\n")
             failed = "; ".join(r["id"] for r in results if r["failures"]) or "-"
+            took_note = f" (a card {median:.0f} s median)" if median is not None else ""
             log.write(f"| {datetime.now().astimezone():%Y-%m-%d %H:%M} | {model} | {ok}/{steps} | "
-                      f"{failed} | {args.note} |\n")
+                      f"{failed} | {args.note}{took_note} |\n")
     return 1 if any(r["failures"] for r in results) else 0
 
 
