@@ -1,9 +1,9 @@
-// The planned week, seen and changed by the athlete (static/week.js, roadmap
+// The planned week, seen and changed by the athlete (static/cards.js, roadmap
 // 19). Live use: three boxes named "Easy run 24 min", no way to see what was
 // behind them, and no way to say "Friday, not Saturday".
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detailLine, dayLabel, dayChoices, dayPanelHtml } from "../src/runspector/web/static/week.js";
+import { detailLine, dayLabel, dayChoices, dayPanelHtml } from "../src/runspector/web/static/cards.js";
 
 const EASY = {
   title: "Easy run 24 min", schedule_id: 16, workout_id: 4016, own: true,
@@ -90,7 +90,7 @@ test("dayPanelHtml: the fields to add a run belong to their day", () => {
 test("askedHtml: the coach's answer to a change asked under the strip shows there", async () => {
   // Live use: "Ask" under the strip started a job, and its "Put on watch" sat
   // in a card on the Coach tab, under a job the athlete had to go and find.
-  const { askedHtml } = await import("../src/runspector/web/static/week.js");
+  const { askedHtml } = await import("../src/runspector/web/static/cards.js");
   const working = askedHtml({ id: "j-1", status: "running" }, null, "");
   assert.match(working, /working on your change/);
   const card = { id: "j-1", question: "Freitag statt <Samstag>", headline: "Friday instead of Saturday is ready.",
@@ -109,7 +109,7 @@ test("askedHtml: the coach's answer to a change asked under the strip shows ther
 test("stripDays: next week can be opened in the strip", async () => {
   // Iter: a week planned on Sunday is next week's - the strip showed only this
   // one, with nothing to tap.
-  const { stripDays } = await import("../src/runspector/web/static/week.js");
+  const { stripDays } = await import("../src/runspector/web/static/cards.js");
   const plan = { days: [{ day: "2026-11-02" }], next: [{ day: "2026-11-09" }] };
   assert.deepEqual(stripDays(plan, 0).map(d => d.day), ["2026-11-02"]);
   assert.deepEqual(stripDays(plan, 1).map(d => d.day), ["2026-11-09"]);
@@ -120,7 +120,7 @@ test("stripDays: next week can be opened in the strip", async () => {
 test("askedHtml: a run waiting for the Claude quota says so", async () => {
   // Live use: a move asked in words "ran" ten minutes - the coach had waited for
   // the athlete's Claude quota, and the strip said only "working".
-  const { askedHtml } = await import("../src/runspector/web/static/week.js");
+  const { askedHtml } = await import("../src/runspector/web/static/cards.js");
   const html = askedHtml({ id: "j-1", status: "running", note: "waiting for quota" }, null, "");
   assert.match(html, /Claude quota/);
   assert.match(html, /tap the day/i, "and the way that needs no coach");

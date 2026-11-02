@@ -25,9 +25,9 @@ import {
   plainReason, plainNoFlags, todayAction, callWhy, GLOSSARY, plainLabel, vo2ChangeText,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
-         setCardContext, renderProposal } from "./cards.js";
+         setCardContext, renderProposal, dayPanelHtml, detailLine, askedHtml,
+         stripDays } from "./cards.js";
 import { youHtml, newDraft, pick, resetRow, draftPatch } from "./you.js";
-import { dayPanelHtml, detailLine, askedHtml, stripDays } from "./week.js";
 
 /* The /api/state answer IS the snapshot, plus `templates`, `jobs`, `cards`,
    `demo` and `claude_available` next to the snapshot keys. */
@@ -1771,7 +1771,7 @@ document.addEventListener("input", ev => {
   if (btn) btn.disabled = area.value.trim() === saved.trim();
 });
 
-/* The week strip's day and the changes made there (`week.js`). */
+/* The week strip's day and the changes made there (`cards.js`). */
 function onPlanClick(ev) {
   const weekBtn = ev.target.closest("button[data-plan-week]");
   if (weekBtn) {
