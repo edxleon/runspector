@@ -421,10 +421,10 @@ def test_a_step_the_conversation_took_today_is_not_offered_again(today):
     shown = {c["id"]: c["next"] for c in jobs.public_cards()}
     assert shown[root] is None, shown[root]
     assert shown[week] == [{"action": "week-review", "why": ""}], shown[week]
-    # Another conversation took no step: its own offer stands.
-    other = _card(kind="week-review", next=[{"action": "train-today"}], asked=today.isoformat())
+    # A step nobody asked for today stands - in any conversation.
+    other = _card(kind="ask", next=[{"action": "week-review"}], asked=today.isoformat())
     assert {c["id"]: c["next"] for c in jobs.public_cards()}[other] == [
-        {"action": "train-today", "why": ""}]
+        {"action": "week-review", "why": ""}]
     # The next morning the conversation's steps are new questions again.
     for cid, c in jobs.list_cards():
         jobs.write_card(cid, {**c, "asked": (today - timedelta(days=1)).isoformat()})

@@ -80,9 +80,9 @@ sync_garmin). Rules:
   Optionally add "next": at most 2 next steps the athlete can start with one
   tap, only where the verdict calls for one - [{"action":"<plan-week |
   train-today | week-review | why-vo2max>","why":"<a few words>"}]. Only these
-  actions, never this card's own kind, never one the earlier conversation
-  below already took today; train-today answers for today only, never for
-  tomorrow. The page shows them as buttons: in your text, name a step by
+  actions, never this card's own kind, never one already asked today (the
+  earlier conversation below shows its cards and days); train-today answers
+  for today only, never for tomorrow. The page shows them as buttons: in your text, name a step by
   what it does ("plan your week"), never by its id.
   Only when the task holds the athlete's own words (a question): if they say
   there that they have one of these NOW - "ill" (a cold, a fever), "pain"
@@ -889,6 +889,14 @@ def _run(job: dict, *, db: str | None, snapshot_meta: dict | None,
     if not (isinstance(card.get("proposal"), str)
             and plan.PROPOSAL_ID_RE.fullmatch(card["proposal"])):
         card.pop("proposal", None)
+    # A change to the week is the athlete's to ask for: a card without their
+    # words (a morning card, a planned week - steered, say, by a calendar
+    # title) carries none, and the page never calls one "from your words"
+    # that nobody said (iter).
+    elif not job.get("athlete_text"):
+        filed = plan.read(card["proposal"])
+        if filed is not None and filed.get("change") is True:
+            card.pop("proposal", None)
     if job.get("athlete_text"):
         card["question"] = str(job["athlete_text"])[:1000]
     if job.get("via"):

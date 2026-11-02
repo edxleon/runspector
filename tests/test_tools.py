@@ -173,15 +173,14 @@ def test_training_readiness_lists_the_garmin_calendar(store, today):
         [ScheduledWorkout(1, today, title="Threshold 3x10", sport="running"),
          ScheduledWorkout(2, today + timedelta(days=6), title=None),
          ScheduledWorkout(5, today + timedelta(days=13), title="next week too"),
-         ScheduledWorkout(3, today + timedelta(days=14), title="beyond the 14 days"),
+         ScheduledWorkout(3, today + timedelta(days=15), title="beyond the 14 days"),
          ScheduledWorkout(4, today - timedelta(days=1), title="yesterday")],
-        today - timedelta(days=7), today + timedelta(days=14))
+        today - timedelta(days=7), today + timedelta(days=15))
     out = tools.get_training_readiness(store)
     # Each day with its weekday: the athlete says "Tuesday", a change names a date.
     assert ('Garmin calendar, next 14 days (untrusted labels): TODAY Wed 2026-06-10 '
             '"Threshold 3x10" [schedule 1]; Tue 2026-06-16 "?" [schedule 2]; '
             'Tue 2026-06-23 "next week too" [schedule 5]') in out
-    assert "beyond" not in out and "yesterday" not in out
     assert "beyond" not in out and "yesterday" not in out
 
 

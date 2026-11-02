@@ -86,3 +86,33 @@ test("dayPanelHtml: the fields to add a run belong to their day", () => {
   assert.match(html, /data-plan-add-kind="2026-11-05"/);
   assert.match(html, /data-plan-add-minutes="2026-11-05"/);
 });
+
+test("askedHtml: the coach's answer to a change asked under the strip shows there", async () => {
+  // Live use: "Ask" under the strip started a job, and its "Put on watch" sat
+  // in a card on the Coach tab, under a job the athlete had to go and find.
+  const { askedHtml } = await import("../src/runspector/web/static/week.js");
+  const working = askedHtml({ id: "j-1", status: "running" }, null, "");
+  assert.match(working, /working on your change/);
+  const card = { id: "j-1", question: "Freitag statt <Samstag>", headline: "Friday instead of Saturday is ready.",
+                 verdict: "Put it on the watch with the button." };
+  const done = askedHtml({ id: "j-1", status: "done" }, card, "<div data-proposal=\"p-1\"></div>");
+  assert.match(done, /Freitag statt &lt;Samstag&gt;/, "the athlete's words, escaped");
+  assert.match(done, /Friday instead of Saturday is ready/);
+  assert.match(done, /data-proposal="p-1"/, "the button for the watch is right here");
+  assert.match(done, /data-plan-asked-close/);
+  assert.match(done, /Coach tab/);
+  const failed = askedHtml({ id: "j-1", status: "error", result_summary: "the run timed out" }, null, "");
+  assert.match(failed, /could not answer.*timed out/);
+  assert.equal(askedHtml(null, null, ""), "");
+});
+
+test("stripDays: next week can be opened in the strip", async () => {
+  // Iter: a week planned on Sunday is next week's - the strip showed only this
+  // one, with nothing to tap.
+  const { stripDays } = await import("../src/runspector/web/static/week.js");
+  const plan = { days: [{ day: "2026-11-02" }], next: [{ day: "2026-11-09" }] };
+  assert.deepEqual(stripDays(plan, 0).map(d => d.day), ["2026-11-02"]);
+  assert.deepEqual(stripDays(plan, 1).map(d => d.day), ["2026-11-09"]);
+  assert.deepEqual(stripDays({ days: [{ day: "2026-11-02" }] }, 1).map(d => d.day), ["2026-11-02"],
+                   "no next week in the data: this week");
+});

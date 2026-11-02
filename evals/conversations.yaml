@@ -124,6 +124,7 @@ stories:
           adds: ["Fri", "Sun"]
           only: true
           minutes: {"Sun": 60}
+          kinds: {"Fri": "easy", "Sun": "long"}
           within_days: 7
         judge: >-
           The athlete asked to run on Friday instead of Saturday and to keep Sunday's long run to
@@ -138,7 +139,9 @@ stories:
         proposal:
           adds: ["Sat"]
           takes_off: ["Sat"]
+          only: true
           kinds: {"Sat": "vo2max"}
+          minutes: {"Sat": 45}
           within_days: 7
         judge: >-
           The athlete asked to turn Saturday's run into VO2max intervals of 45 minutes, the day

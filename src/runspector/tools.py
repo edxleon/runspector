@@ -290,8 +290,9 @@ def get_training_readiness(store: Store) -> str:
         f"\nNOTE: latest data is from {r['day']}, not today - treat the verdict as stale."
     decision = _decide(store, today)
     # Two weeks, not one: "move Saturday's run" may mean next week's, and the
-    # athlete's change names an entry by its schedule id (`propose_change`).
-    plan = store.get_scheduled_workouts(today, today + timedelta(days=13))
+    # athlete's change names an entry by its schedule id (`propose_change`) -
+    # every day the strip can move a session to (`plan.CALENDAR_WINDOW`).
+    plan = store.get_scheduled_workouts(today, today + timedelta(days=14))
     # A RUN on today's calendar is the plan; a gym hour is not a stand-in for it.
     planned_today = any(p["day"] == today.isoformat()
                         and "run" in str(p.get("sport") or "running").lower() for p in plan)
@@ -306,7 +307,7 @@ def get_training_readiness(store: Store) -> str:
             f"{'TODAY ' if p['day'] == today.isoformat() else ''}"
             f"{_WEEKDAY[date.fromisoformat(p['day']).weekday()]} {p['day']} \"{p['title'] or '?'}\" "
             f"[schedule {p['schedule_id']}]" + _easier_note(store, p, today, decision, replaced)
-            for p in plan[:14])
+            for p in plan[:30])
         stale += _swap_line(store, plan, decision, today)
     else:
         stale += "\n\nGarmin calendar: nothing scheduled in the next 14 days."

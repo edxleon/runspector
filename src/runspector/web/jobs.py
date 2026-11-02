@@ -266,8 +266,8 @@ NEXT_ACTIONS = ("plan-week", "train-today", "week-review", "why-vo2max")
 
 
 def _public_next(raw, taken: frozenset = frozenset()) -> list[dict] | None:
-    """The steps a card offers, from the app's menu - without one its
-    conversation already took today (`taken`): live use, a week's card offered
+    """The steps a card offers, from the app's menu - without one already
+    asked today (`taken`, any conversation): live use, a week's card offered
     "should I train today?" right under the answer to it. Tomorrow that step
     is a new question, and the button is back."""
     out = [{"action": n["action"], "why": _cap(n.get("why"), 80)}
@@ -437,12 +437,11 @@ def public_cards(limit: int = 10) -> list[dict]:
         if roots[cid] not in keep:
             keep.append(roots[cid])
     keep_set = set(keep[:limit])
-    # The kinds each conversation was asked today - its next steps taken.
+    # The card kinds asked today, in any conversation - those next steps are
+    # taken today: "should I train today?" from the Today tab's own button
+    # is the same question as from a card's (iter).
     today = paths.today().isoformat()
-    taken: dict[str, set[str]] = {}
-    for cid, c in listed:
-        if c.get("asked") == today:
-            taken.setdefault(roots[cid], set()).add(str(c.get("kind") or ""))
+    taken = frozenset(str(c.get("kind") or "") for _, c in listed if c.get("asked") == today)
     # What each card kept, from where it is kept - a card's own field could be
     # older than the guard that writes it now.
     from .. import logic, profile
@@ -489,7 +488,7 @@ def public_cards(limit: int = 10) -> list[dict]:
             # the card offers (checked against the app's menu again), the facts
             # it kept, and whether it was started as a next step.
             "question": _cap(question_of(c), 1000) or None,
-            "next": _public_next(c.get("next"), frozenset(taken.get(roots[cid], ()))),
+            "next": _public_next(c.get("next"), taken),
             "told": kept.get(cid) or None,
             # What it would have noted, had the list for the coach not been full.
             "told_full": c.get("told_full") is True,

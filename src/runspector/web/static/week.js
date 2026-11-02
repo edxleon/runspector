@@ -119,3 +119,41 @@ export function dayPanelHtml(cell, { todayIso }) {
       and your calendar changes only with "Put on watch".</div>` : ""}
   </div>`;
 }
+
+/** The coach's answer to a change asked in words under the strip - shown
+ *  there, where it was asked, with the change's own button for the watch
+ *  (`proposalHtml`, cards.js `renderProposal`). Live use: "Ask" started a job
+ *  and its "Put on watch" sat in a card on the Coach tab, under a job the
+ *  athlete had to go and find. `job` and `card` are from /api/state. */
+export function askedHtml(job, card, proposalHtml = "") {
+  const close = `<button type="button" class="linkish" data-plan-asked-close>Close</button>`;
+  if (card) {
+    return `<div class="plan-asked">
+      <div class="plan-head"><span class="subhead">The coach on your change</span>${close}</div>
+      ${card.question ? `<div class="note">You asked: ${esc(card.question)}</div>` : ""}
+      <b>${esc(card.headline || "")}</b>
+      ${card.verdict ? `<div>${esc(card.verdict)}</div>` : ""}
+      ${proposalHtml}
+      <button type="button" class="linkish" data-plan-asked-open>The whole answer in the Coach tab →</button>
+    </div>`;
+  }
+  if (!job) return "";
+  if (job.status === "queued" || job.status === "running") {
+    return `<div class="plan-asked plan-working"><span class="busy-ring" aria-hidden="true"></span>
+      The coach is working on your change - its answer appears here, with the button for the
+      watch.</div>`;
+  }
+  if (job.status !== "done") {
+    return `<div class="plan-asked"><div class="plan-head"><span class="note proposal-warn">The coach
+      could not answer: ${esc(job.result_summary || job.note || job.status)}</span>${close}</div></div>`;
+  }
+  return "";
+}
+
+/** The seven days the strip shows: this week (0) or the next (1) - a week
+ *  planned on Sunday is next week's (iter). Without next week's data, this
+ *  week. */
+export function stripDays(plan, which) {
+  const next = (plan || {}).next || [];
+  return which === 1 && next.length ? next : ((plan || {}).days || []);
+}

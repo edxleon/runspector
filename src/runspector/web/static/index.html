@@ -145,7 +145,11 @@ button.w-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1
 .proposal-coach { display: grid; gap: 4px; margin: 6px 0; padding: 8px 10px; border-radius: 8px;
                   border-left: 3px solid var(--warn); background: var(--surface2); }
 .proposal-coach p { margin: 0; }
-.plan-say { display: flex; gap: 8px; margin-top: 10px; }
+.plan-say { display: flex; gap: 8px; margin-top: 14px; }
+.plan-asked { display: grid; gap: 6px; margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+              border: 1px solid var(--accent); background: var(--surface); }
+.plan-working { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.plan-working .busy-ring { color: var(--accent); flex: none; }
 .plan-say-input { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border-radius: 6px;
                   border: 1px solid var(--line); background: var(--surface2); color: inherit; }
 /* Minutes above easy: bars below the target line subdued, the line dashed.
@@ -197,6 +201,10 @@ button.w-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1
     <span id="fresh-dot" class="dot"></span><span id="fresh">–</span>
     <svg class="reload" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>
+  </button>
+  <button type="button" class="jobs-busy" id="jobs-busy" hidden
+          title="The coach is working - to its job" aria-label="The coach is working - to its job">
+    <span class="busy-ring" aria-hidden="true"></span><span class="busy-word">Coach working</span>
   </button>
 </header>
 

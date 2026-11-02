@@ -210,6 +210,11 @@ def changes_on_calendar(store: Store, *, filed_by: str = "athlete", limit: int =
         ahead = paths.today().isoformat()
         if not any(str(x.get("day") or "") >= ahead for x in d["items"] + list(d.get("replaces") or [])):
             continue                     # all in the past: nothing to undo there (round 2)
+        # Moved on by a later change, or its new day has had its day: its undo
+        # would put the old day back beside the session (iter).
+        if any(it.get("taken_off_by") or (it.get("schedule_id") and str(it.get("day")) < ahead)
+               for it in d["items"]):
+            continue
         if any(it.get("schedule_id") for it in d["items"]) or any(
                 r.get("removed") and not r.get("restored") for r in d.get("replaces") or []):
             out.append(d)
@@ -325,7 +330,10 @@ def _reconcile(store: Store, p: dict) -> dict:
         # applied while an entry it took off is off, and open again once undo
         # put them back - so it can be made again (review).
         if p.get("replaces"):
-            p["status"] = "applied" if any(r.get("removed") and not r.get("restored")
+            # Only a put-back that HAPPENED reopens it: one that is unclear or
+            # on a past day leaves it applied, never offered as if nothing
+            # had been done (iter).
+            p["status"] = "applied" if any(r.get("removed") and r.get("restored") is not True
                                            for r in p["replaces"]) else "open"
     elif any(it.get("workout_id") for it in p["items"]):
         # "applied" = this proposal has touched Garmin, which is what decides
@@ -977,13 +985,19 @@ def propose_change(store: Store, edits: list[dict], *, today: date | None = None
             str(kind), duration_min=_change_minutes(minutes), zones=zones, today=anchor))
 
     replaces: list[dict] = []
-    new: list[tuple[date, planning.SessionSpec]] = []
+    new: list[tuple] = []          # (day, session, the calendar entry it takes the place of)
     for e in edits:
         if e["action"] == "add":
             new.append((_change_day(e.get("day"), today=anchor),
-                        build(e.get("kind") or "easy", e.get("minutes"))))
+                        build(e.get("kind") or "easy", e.get("minutes")), None))
             continue
         r = entries[_whole(e["schedule_id"], "schedule_id")]
+        if not r.get("workout_id"):
+            # Apply touches an entry only while it still holds the workout it
+            # was filed with; one with none would be refused there, saying
+            # the calendar changed - say the real reason here.
+            raise ValueError(f"\"{r.get('title')}\" has no workout behind it on Garmin (an "
+                             f"entry of a Garmin training plan, say) - change it in Garmin Connect")
         was = date.fromisoformat(r["day"])
         if was < anchor:
             raise ValueError(f"{was} has passed - only what lies ahead can be changed")
@@ -1002,7 +1016,7 @@ def propose_change(store: Store, edits: list[dict], *, today: date | None = None
             if day == was:
                 raise ValueError(f"\"{r.get('title')}\" is on {was} already")
             try:
-                new.append((day, planning.from_json(own)))
+                new.append((day, planning.from_json(own), r))
             except (KeyError, TypeError, ValueError):
                 raise ValueError(f"the session behind \"{r.get('title')}\" could not be read - "
                                  f"take it out and add one instead") from None
@@ -1016,10 +1030,16 @@ def propose_change(store: Store, edits: list[dict], *, today: date | None = None
         if not kind or not minutes:
             raise ValueError(f"\"{r.get('title')}\" is not a session this app planned - say the "
                              f"kind and the minutes of the one that takes its place")
-        new.append((day, build(kind, minutes)))
-    notes = change_notes(store, anchor, snap, replaces, new)
+        new.append((day, build(kind, minutes), r))
+    notes = change_notes(store, anchor, snap, replaces, [(d, sp) for d, sp, _ in new])
     new.sort(key=lambda x: x[0])
-    p = _file([_item(d, s) for d, s in new], replaces=replaces, assumptions=[], zones=zones,
+    # Each old day knows the session that takes its place: apply takes it off
+    # only with that session (iter: two moves clicked after the first new day
+    # had passed took the old day off and put it nowhere).
+    for i, (_, _, r) in enumerate(new):
+        if r is not None:
+            r["for_item"] = i
+    p = _file([_item(d, sp) for d, sp, _ in new], replaces=replaces, assumptions=[], zones=zones,
               notes=notes)
     # Who filed it - the athlete in the strip, or the coach from their words
     # (security review: the coach's change was labelled as the athlete's own).
@@ -1110,15 +1130,29 @@ def change_notes(store: Store, anchor: date, snap: dict, replaces: list[dict],
         total_before = done_min + sum(m or 0 for _, _, m in before)
         total_after = done_min + sum(m or 0 for _, _, m in after)
         # A workout the app did not make has no known length: a change that
-        # takes one off cannot be weighed against the plan's size.
+        # takes one off cannot be weighed, and one that stays is said, not
+        # counted as nothing (iter: the note said 9 % for a week 64 % over).
         unknown = any(m is None for (_, _, m), e in zip(before, ahead, strict=True)
                       if int(e["schedule_id"]) in gone)
-        if budget and not unknown and total_after > budget * 1.05 and total_after > total_before:
-            notes.append(f"This week would hold ~{total_after} min of running; the plan would give "
-                         f"it ~{budget} min ({_MODE_WORDS.get(mode, mode)}) - "
-                         f"{round((total_after / budget - 1) * 100)} % more. More at once than "
-                         f"the plan's step is where overuse injuries start; I would add it over "
-                         f"two or three weeks.")
+        blind = sum(1 for _, _, m in after if m is None)
+        # The maintainer's measure: more than 10 % over last week - besides the
+        # plan's own size, which steps from the weeks before (iter).
+        last = sum(store.running_seconds_by_day(monday - timedelta(days=7),
+                                                monday - timedelta(days=1)).values()) // 60
+        over_last = last > 0 and total_after > last * 1.10
+        over_plan = bool(budget) and total_after > budget * 1.05
+        if (over_last or over_plan) and not unknown and total_after > total_before:
+            notes.append(
+                f"This week would hold ~{total_after} min of running"
+                + (f" - {round((total_after / last - 1) * 100)} % more than last week's ~{last} min"
+                   if over_last else "")
+                + (f"; the plan would give it ~{budget} min ({_MODE_WORDS.get(mode, mode)})"
+                   if budget else "")
+                + (f", and {blind} workout{'s' if blind > 1 else ''} from your Garmin calendar "
+                   f"whose length the app does not know {'are' if blind > 1 else 'is'} not counted"
+                   if blind else "")
+                + ". More at once than about 10 % is where overuse injuries start; I would add "
+                  "it over two or three weeks.")
         q_before = done_hard + sum(1 for _, k, _ in before if k == "hard")
         q_after = done_hard + sum(1 for _, k, _ in after if k == "hard")
         if q_after > 2 and q_after > q_before:
@@ -1230,8 +1264,33 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
         warnings.append("the calendar entries of this proposal are being handled by another "
                         "apply - nothing was removed here")
         todo = []
+    # An entry whose last answer was unclear may have come off - and Garmin
+    # hands calendar ids out again. It is tried again only against a calendar
+    # read fresh from Garmin, never against a mirror that could not be
+    # refreshed then (iter).
+    if any(r.get("unclear") for r in todo):
+        lo, hi = anchor - timedelta(days=CALENDAR_WINDOW[0]), anchor + timedelta(days=CALENDAR_WINDOW[1])
+        try:
+            fresh_cal, complete = garmin.fetch_scheduled_workouts(client, lo, hi)
+        except Exception:  # noqa: BLE001 — unreadable is "not now", never a guess
+            complete = False
+        if complete:
+            store.replace_scheduled_workouts(fresh_cal, lo, hi)
+        else:
+            for r in [r for r in todo if r.get("unclear")]:
+                warnings.append(f"\"{r.get('title')}\" on {r.get('day')}: whether it came off is "
+                                f"unclear, and your calendar could not be read to check - try again "
+                                f"later")
+            todo = [r for r in todo if not r.get("unclear")]
+            retry_replaces = True
+    skipped = set(past)
     for r in todo:
         sid, wid_was = int(r["schedule_id"]), r.get("workout_id")
+        if r.get("for_item") in skipped:
+            r["removed"] = False
+            warnings.append(f"did NOT remove \"{r.get('title')}\" from {r.get('day')}: the day it "
+                            f"moves to ({p['items'][r['for_item']]['day']}) has passed - it stays")
+            continue
         # A day that has passed is not changed: a removal filed for Tuesday
         # and clicked on Thursday took Tuesday's entry off - and undo puts
         # nothing back on a past day (security review).
@@ -1253,30 +1312,41 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
             continue
         try:
             garmin.unschedule(client, sid)
-            r["removed"], r["restored"] = True, None
-            # Taken off again after an undo had put it back: the next undo may
-            # put it back again.
-            store.release_proposal_item(proposal_id, RESTORE_CLAIM_INDEX)
-            # The app's record of where its workout sits, and the proposal that
-            # put it there, stay true: that week's undo would otherwise aim at
-            # a calendar id that is gone, and offer to put the session back.
-            store.set_workout_schedule(wid_was, None, None, only_if=sid)
-            _mark_taken_off(wid_was, sid, proposal_id)
-            log.info("unscheduled %s (workout %s) for proposal %s", sid, wid_was, proposal_id)
         except Exception as exc:  # noqa: BLE001 — the old entry stays, say so
-            stays = ("both are on the calendar now" if p["items"]
-                     else "it is still on the calendar")
+            # Open for another apply either way: it is checked against the
+            # calendar mirror first (refreshed below), so an entry that did
+            # come off is not aimed at twice (review: a refusal was stored for
+            # good, and an unclear answer was offered again as "stays").
+            r["removed"] = None
+            retry_replaces = True
+            r["unclear"] = not _created_nothing(exc)
             if _created_nothing(exc):
-                # Garmin did nothing: the next apply may try again (review: a
-                # refusal was stored for good and every retry did nothing).
-                r["removed"] = None
-                retry_replaces = True
+                stays = ("both are on the calendar now" if p["items"]
+                         else "it is still on the calendar")
                 warnings.append(f"could not remove \"{r.get('title')}\" from {r.get('day')} "
                                 f"({type(exc).__name__}) - {stays}; apply again to retry")
             else:
-                r["removed"] = False
                 warnings.append(f"unclear whether \"{r.get('title')}\" came off {r.get('day')} "
-                                f"({type(exc).__name__}) - look at your Garmin calendar")
+                                f"({type(exc).__name__}) - apply again: it is checked against your "
+                                f"calendar first")
+            continue
+        r["removed"], r["restored"] = True, None
+        r.pop("unclear", None)
+        # Taken off again after an undo had put it back: the next undo may
+        # put it back again.
+        store.release_proposal_item(proposal_id, RESTORE_CLAIM_INDEX)
+        log.info("unscheduled %s (workout %s) for proposal %s", sid, wid_was, proposal_id)
+        # The app's record of where its workout sits, and the proposal that put
+        # it there, stay true: that week's undo would otherwise aim at a
+        # calendar id that is gone. Apart from the removal: a local write that
+        # fails does not make the removal on Garmin not have happened (iter).
+        try:
+            store.set_workout_schedule(wid_was, None, None, only_if=sid)
+            _mark_taken_off(wid_was, sid, proposal_id)
+        except Exception as exc:  # noqa: BLE001 — Garmin is right; the record lags
+            log.warning("record of workout %s not updated: %r", wid_was, exc)
+            warnings.append(f"\"{r.get('title')}\" came off {r.get('day')}, but the app's own "
+                            f"record of it could not be updated ({type(exc).__name__})")
     # Saved BEFORE the first upload: an unschedule that happened must not be
     # forgotten because the upload after it failed. Through `_finish`, not a
     # raw dump - a concurrent apply may have recorded something in between.
@@ -1477,6 +1547,17 @@ def undo(store: Store, client, proposal_id: str, *, today: date | None = None) -
         store.release_schedule_claim(proposal_id, p["items"].index(it))
         removed += 1
 
+    # A change put back only whole: when the session that took the old day's
+    # place was moved on by a later change, had its day, or would not come
+    # off, putting the old day back makes the week hold it twice (iter).
+    if p.get("change") and to_restore:
+        moved_on = [it for it in p["items"] if it.get("taken_off_by")]
+        if moved_on or removed < len(placed):
+            why = ("a later change moved it on - undo that one first" if moved_on
+                   else "the session that took its place stays on the calendar")
+            warnings += [f"\"{r.get('title')}\" is not put back on {r.get('day')}: {why}"
+                         for r in to_restore]
+            to_restore = []
     restored = _restore_replaced(store, client, proposal_id, to_restore, anchor, warnings)
 
     start, end = anchor - timedelta(days=CALENDAR_WINDOW[0]), anchor + timedelta(days=CALENDAR_WINDOW[1])

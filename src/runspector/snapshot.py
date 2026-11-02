@@ -413,8 +413,17 @@ def build_plan(scheduled: list[dict], runs: list[dict], today: date,
                 "activity_id": r.get("activity_id"), "name": r.get("name"), "type": r.get("type"),
                 "training_load": r.get("training_load"), "band": r.get("band")})
     days = [(monday + timedelta(days=i)).isoformat() for i in range(7)]
+    # Next week too, by day: a week planned on Sunday is next week's, and the
+    # strip could show only this one - nothing to tap (iter). Its own entry
+    # objects, the same entries "upcoming" lists.
+    nxt = [(monday + timedelta(days=7 + i)).isoformat() for i in range(7)]
+    by_day_next: dict[str, list] = {}
+    for u in upcoming:
+        if u["day"] in nxt:
+            by_day_next.setdefault(u["day"], []).append({k: v for k, v in u.items() if k != "day"})
     return {"week_start": lo, "today": today.isoformat(),
             "days": [{"day": d, "planned": planned.get(d, []), "done": done.get(d, [])} for d in days],
+            "next": [{"day": d, "planned": by_day_next.get(d, []), "done": []} for d in nxt],
             "upcoming": sorted(upcoming, key=lambda x: x["day"])[:6]}
 
 
@@ -443,6 +452,7 @@ def mark_held(plan: dict, said: dict | None, today: date, own_kinds: dict,
         return
     entries = [(d["day"], e) for d in plan.get("days") or [] for e in d.get("planned") or []]
     entries += [(e["day"], e) for e in plan.get("upcoming") or []]
+    entries += [(d["day"], e) for d in plan.get("next") or [] for e in d.get("planned") or []]
     for day, e in entries:
         if day < iso:                       # what is behind today is not held by today's word
             continue

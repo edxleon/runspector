@@ -214,13 +214,12 @@ def test_a_hard_session_in_a_return_week_is_kept_and_commented(store, today):
 
 
 def test_a_run_on_a_day_the_athlete_is_in_pain_is_kept_and_commented(store, today):
-    monday = _the_return_week(store, today)
+    _the_return_week(store, today)
     store.say_check_in("pain", today)
     p = plan.propose_change(store, [{"action": "add", "day": today.isoformat(), "kind": "easy",
                                      "minutes": 30}], today=today)
     assert p["items"], "the athlete decides"
     assert any("pain" in n for n in p["notes"]), p["notes"]
-    assert monday
 
 
 def test_a_run_today_on_a_rest_day_is_kept_and_commented(store, today):
@@ -228,6 +227,7 @@ def test_a_run_today_on_a_rest_day_is_kept_and_commented(store, today):
     store.upsert_daily(make_day(today, hrv_status="LOW", sleep_score=85, body_battery_high=90))
     p = plan.propose_change(store, [{"action": "add", "day": today.isoformat(), "kind": "easy",
                                      "minutes": 30}], today=today)
+    assert p["items"], "the athlete decides"
     assert any("Rest" in n for n in p["notes"]), p["notes"]
 
 
@@ -493,9 +493,7 @@ def test_the_coach_words_hold_across_a_week_and_name_a_day_off(store, today, mon
         p = plan.propose_change(store, [{"action": "add", "day": monday.isoformat(),
                                          "kind": "vo2max", "minutes": 45}], today=today)
         assert any("48 hours" in n for n in p["notes"]), p["notes"]
-    from runspector import profile as profile_mod
     monkeypatch.setattr(snapshot, "load_profile", lambda: {"off_days": ["tue"]})
-    assert profile_mod
     p = plan.propose_change(store, [{"action": "add", "day": (monday + timedelta(days=1)).isoformat(),
                                      "kind": "easy", "minutes": 30}], today=today)
     assert any("Tuesdays" in n for n in p["notes"]), p["notes"]
@@ -604,7 +602,7 @@ def test_a_change_undone_after_its_day_leaves_that_day_alone(store, today, monke
     assert placed in fake.data["schedule"], "Friday has passed: left as it was"
     monkeypatch.setattr(plan.paths, "today", lambda: later)
     assert plan.changes_on_calendar(store) == [], "a change in the past is not offered for undo"
-    assert out
+    assert any("that day has passed" in w for w in out.get("warnings") or []), out
 
 
 def test_one_unreadable_proposal_does_not_take_the_page_down(store, today):
@@ -615,3 +613,272 @@ def test_one_unreadable_proposal_does_not_take_the_page_down(store, today):
         '{"id": "p-20261102-000000-dead", "change": true, "items": [{"day": 5}], '
         '"replaces": [{"day": null}], "created": "9999"}', encoding="utf-8")
     assert _app(store)._change_views() == []
+
+
+# ── deep review (iter) ───────────────────────────────────────────────────────
+
+def test_a_move_whose_new_day_passed_leaves_the_old_day_on(store, today):
+    """Two moves in one change, clicked after the first new day passed: the
+    old day of that move came off and went nowhere - a deletion nobody asked
+    for. An old day comes off only with the session that takes its place."""
+    monday = _the_return_week(store, today)
+    tue, sat = monday + timedelta(days=1), monday + timedelta(days=5)
+    p = plan.propose_change(store, [
+        {"schedule_id": 16, "action": "move", "day": monday.isoformat()},     # Sat -> Mon
+        {"schedule_id": 12, "action": "move", "day": (monday + timedelta(days=3)).isoformat()},
+    ], today=today)
+    fake = FakeGarmin(schedule={16: {"workoutId": 4016, "date": sat.isoformat()},
+                                12: {"workoutId": 4012, "date": tue.isoformat()}})
+    out = plan.apply(store, fake, p["id"], today=tue)      # Monday has passed
+    assert 16 in fake.data["schedule"], "Saturday stays: its new day passed"
+    assert 12 not in fake.data["schedule"], "the other move went through"
+    assert any("Sat" in w or sat.isoformat() in w for w in out.get("warnings") or []), out
+
+
+def test_the_size_note_says_what_it_could_not_count(store, today):
+    """A workout from Garmin Connect counted as 0 min: the note said 9 % more
+    for a week 64 % over, or nothing."""
+    monday = _the_return_week(store, today)
+    _calendar(store, today, [(11, monday, "Easy", True), (12, monday + timedelta(days=1), "Easy", True),
+                             (16, monday + timedelta(days=5), "Easy", True),
+                             (35, monday + timedelta(days=2), "Club run 90 min", False)])
+    p = plan.propose_change(store, [{"action": "add", "day": (monday + timedelta(days=3)).isoformat(),
+                                     "kind": "easy", "minutes": 150}], today=today)
+    (vol,) = [n for n in p["notes"] if "min of running" in n]
+    assert "not counted" in vol and "1 workout" in vol, vol
+
+
+def test_ten_percent_over_last_week_is_said(store, today):
+    """The maintainer's words: "more than 10 % volume over last week". Four
+    weeks of 150, a week of 150 made 170 (+13 %): no note, because the plan's
+    size had a 15 % margin before anything was said."""
+    monday = _monday(today)
+    _history(store, monday)
+    specs = [(41, 1, 50), (42, 3, 50), (43, 5, 50)]
+    for sid, off, mins in specs:
+        _own(store, sid, monday + timedelta(days=off), "easy", mins)
+    _calendar(store, today, [(sid, monday + timedelta(days=off), "Easy", True) for sid, off, _ in specs])
+    p = plan.propose_change(store, [{"action": "add", "day": (monday + timedelta(days=6)).isoformat(),
+                                     "kind": "easy", "minutes": 20}], today=today)
+    (vol,) = [n for n in p["notes"] if "min of running" in n]
+    assert "last week" in vol, vol
+
+
+def test_a_change_moved_on_again_is_not_undone_into_a_double(store, today):
+    """C1 moved Monday to Tuesday, C2 Tuesday to Wednesday; undoing C1 put
+    Monday back while Wednesday stayed - the run twice in one week."""
+    monday = _the_return_week(store, today)
+    fake = FakeGarmin(schedule={11: {"workoutId": 4011, "date": monday.isoformat()}})
+    thu = (monday + timedelta(days=3)).isoformat()
+    c1 = plan.propose_change(store, [{"schedule_id": 11, "action": "move", "day": thu}],
+                             today=today)
+    plan.apply(store, fake, c1["id"], today=today)
+    placed = plan.read(c1["id"], store)["items"][0]
+    c2 = plan.propose_change(store, [{"schedule_id": placed["schedule_id"], "action": "move",
+                                      "day": (monday + timedelta(days=4)).isoformat()}], today=today)
+    plan.apply(store, fake, c2["id"], today=today)
+    assert [c["id"] for c in plan.changes_on_calendar(store)] == [c2["id"]], \
+        "a change moved on again is not offered for undo"
+    out = plan.undo(store, fake, c1["id"], today=today)
+    days = sorted(s["date"] for s in fake.data["schedule"].values())
+    assert monday.isoformat() not in days, (days, out)
+    assert any("later change moved it on" in w for w in out.get("warnings") or []), out
+
+
+def test_a_change_whose_new_day_passed_is_not_undone_into_a_double(store, today):
+    """Saturday's run moved to Thursday and run there; undo on Friday put the
+    Saturday run back - the week's session twice."""
+    monday = _the_return_week(store, today)
+    thu, fri, sat = (monday + timedelta(days=d) for d in (3, 4, 5))
+    fake = FakeGarmin(schedule={16: {"workoutId": 4016, "date": sat.isoformat()}})
+    p = plan.propose_change(store, [{"schedule_id": 16, "action": "move", "day": thu.isoformat()}],
+                            today=today)
+    plan.apply(store, fake, p["id"], today=today)
+    plan.undo(store, fake, p["id"], today=fri)
+    assert not any(s["date"] == sat.isoformat() for s in fake.data["schedule"].values()), \
+        fake.data["schedule"]
+
+
+def test_an_unclear_put_back_is_no_quiet_success(store, today, monkeypatch):
+    monday = _the_return_week(store, today)
+    p = plan.propose_change(store, [{"schedule_id": 11, "action": "remove"}], today=today)
+    fake = FakeGarmin(schedule={11: {"workoutId": 4011, "date": monday.isoformat()}})
+    plan.apply(store, fake, p["id"], today=today)
+
+    class Unclear(FakeGarmin):
+        def schedule_workout(self, wid, d):
+            raise TimeoutError("read timed out")
+
+    plan.undo(store, Unclear(schedule=dict(fake.data["schedule"])), p["id"], today=today)
+    after = plan.read(p["id"], store)
+    assert after["status"] == "applied", "unclear: not offered again as if nothing happened"
+
+
+def test_an_entry_with_no_workout_behind_it_is_refused_when_filed(store, today):
+    monday = _the_return_week(store, today)
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(77, monday + timedelta(days=2), workout_id=None, title="Plan item",
+                          sport="running")],
+        monday + timedelta(days=2), monday + timedelta(days=2))
+    with pytest.raises(ValueError, match="Garmin Connect"):
+        plan.propose_change(store, [{"schedule_id": 77, "action": "remove"}], today=today)
+
+
+def test_a_local_write_failing_after_garmin_removed_keeps_the_removal(store, today, monkeypatch):
+    monday = _the_return_week(store, today)
+    p = plan.propose_change(store, [{"schedule_id": 11, "action": "remove"}], today=today)
+    fake = FakeGarmin(schedule={11: {"workoutId": 4011, "date": monday.isoformat()}})
+
+    def broken(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(store, "set_workout_schedule", broken)
+    plan.apply(store, fake, p["id"], today=today)
+    assert 11 not in fake.data["schedule"]
+    assert plan.read(p["id"])["replaces"][0]["removed"] is True, "undo must still put it back"
+
+
+def test_an_unclear_removal_can_be_tried_again_and_says_so(store, today):
+    monday = _the_return_week(store, today)
+    p = plan.propose_change(store, [{"schedule_id": 12, "action": "remove"}], today=today)
+
+    class Unclear(FakeGarmin):
+        def unschedule_workout(self, sid):
+            raise TimeoutError("read timed out")
+
+    tue = (monday + timedelta(days=1)).isoformat()
+    out = plan.apply(store, Unclear(schedule={12: {"workoutId": 4012, "date": tue}}),
+                     p["id"], today=today)
+    assert "unclear" in out["error"] and "stays" not in out["error"], out["error"]
+    ok = FakeGarmin(schedule={12: {"workoutId": 4012, "date": (monday + timedelta(days=1)).isoformat()}})
+    out = plan.apply(store, ok, p["id"], today=today)
+    assert 12 not in ok.data["schedule"] and not out.get("error"), out
+
+
+def test_next_week_is_in_the_strip_too(store, today):
+    """A week planned on Sunday is next week's - and the strip showed only
+    this week: nothing to tap."""
+    monday = _monday(today)
+    _own(store, 51, monday + timedelta(days=1), "easy", 30)
+    _calendar(store, today, [(51, monday + timedelta(days=1), "Easy run 30 min", True)])
+    plan_ = snapshot.assemble(store, today=today)["plan"]
+    assert [d["day"] for d in plan_["next"]] == [(monday + timedelta(days=i)).isoformat() for i in range(7)]
+    (entry,) = [e for d in plan_["next"] for e in d["planned"]]
+    assert entry["schedule_id"] == 51 and entry["detail"]["minutes"] == 30
+
+
+def test_a_card_nobody_asked_carries_no_change_to_the_week(store, today, tmp_path, monkeypatch):
+    """Iter: a card with no athlete words (a morning card, a planned week) could
+    file a change - steered, say, by a Garmin title - and the page called it
+    "the coach's change, from your words". Only a card with their words
+    carries one."""
+    import json as _json
+
+    from runspector.web import agent, jobs
+
+    _the_return_week(store, today)
+    text = tools.propose_change(store, [{"action": "remove", "schedule_id": 12}])
+    pid = text.split("proposal ")[1].split()[0]
+
+    def run(job):
+        def fake(job, db, athlete="", note=""):
+            return 0, _json.dumps({"result": _json.dumps({"headline": "h", "bullets": ["b"],
+                                                          "verdict": "v", "proposal": pid}),
+                                   "total_cost_usd": 0.0, "num_turns": 2}), ""
+        monkeypatch.setattr(agent, "_run_once", fake)
+        monkeypatch.setattr(agent, "verify_facts", lambda *a, **k: [])
+        agent.run(job, db=str(tmp_path / "x.db"))
+        return jobs.read_card(job["id"])
+
+    morning = jobs.new_job("p", title="t", kind="train-today")
+    assert "proposal" not in run(morning)
+    asked = jobs.new_job("p", title="t", kind="ask", athlete_text="Tuesday out, please.")
+    assert run(asked)["proposal"] == pid
+
+
+def test_a_question_on_a_card_gets_the_rules_for_a_change(store, today):
+    """Iter: "Friday instead of Saturday" asked on a plan-week card's
+    conversation got none of the rules for a change."""
+    from runspector.web import server
+
+    text = server._follow_up_text({"id": "j-1"}, "Friday instead of Saturday", "abcd", [])
+    assert "propose_change" in text and "THEY name" in text and "not done" in text
+
+
+class _CalendarFake(FakeGarmin):
+    """A Garmin whose calendar can be read back - the mirror refresh."""
+
+    def get_scheduled_workouts(self, year, month):
+        if self.data.get("calendar_down"):
+            raise ConnectionRefusedError("calendar down")
+        return {"calendarItems": [
+            {"itemType": "workout", "id": sid, "date": e["date"], "workoutId": e["workoutId"],
+             "title": "x"} for sid, e in self.data.get("schedule", {}).items()
+            if e["date"].startswith(f"{year}-{month:02d}")]}
+
+
+def test_an_unclear_removal_is_tried_again_only_against_a_fresh_calendar(store, today):
+    """Iter (evals review): Garmin took the entry off, the answer was lost, the
+    mirror could not be refreshed - and Garmin gave the id to another workout.
+    A second apply on the stale mirror would take THAT one off."""
+    monday = _the_return_week(store, today)
+    tue = (monday + timedelta(days=1)).isoformat()
+    p = plan.propose_change(store, [{"schedule_id": 12, "action": "remove"}], today=today)
+
+    class GoneButUnclear(_CalendarFake):
+        def unschedule_workout(self, sid):
+            super().unschedule_workout(sid)
+            raise TimeoutError("read timed out")
+
+    g = GoneButUnclear(schedule={12: {"workoutId": 4012, "date": tue}}, calendar_down=True)
+    plan.apply(store, g, p["id"], today=today)
+    assert 12 not in g.data["schedule"], "it did come off"
+    # Garmin hands the id to something else; the calendar can be read again.
+    g.data["schedule"][12] = {"workoutId": 9999, "date": tue}
+    g.data["calendar_down"] = False
+    plan.apply(store, g, p["id"], today=today)
+    assert g.data["schedule"].get(12, {}).get("workoutId") == 9999, "someone else's entry stays"
+    # ...and while the calendar cannot be read, an unclear one is not tried at all.
+    g.data["calendar_down"] = True
+    g.data["schedule"][12] = {"workoutId": 4012, "date": tue}
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(12, monday + timedelta(days=1), workout_id=4012, title="Easy",
+                          sport="running")], monday + timedelta(days=1), monday + timedelta(days=1))
+    p2 = plan.propose_change(store, [{"schedule_id": 12, "action": "remove"}], today=today)
+    g.data["schedule"][12] = {"workoutId": 4012, "date": tue}
+    plan.apply(store, g, p2["id"], today=today)          # unclear again: it came off
+    g.data["schedule"][12] = {"workoutId": 9999, "date": tue}
+    plan.apply(store, g, p2["id"], today=today)
+    assert g.data["schedule"].get(12, {}).get("workoutId") == 9999, "not tried blind"
+
+
+def test_the_coach_sees_every_day_the_strip_can_move_a_session_to(store, today):
+    """Iter: the strip moves a session up to today+14, the coach's calendar
+    stopped at today+13 and 14 entries - with a gym day beside most runs,
+    next Saturday's run had no schedule id for the coach."""
+    entries = [ScheduledWorkout(100 + i, today + timedelta(days=i), workout_id=None,
+                                title=f"run {i}", sport="running") for i in range(15)]
+    entries += [ScheduledWorkout(200 + i, today + timedelta(days=i), workout_id=None,
+                                 title=f"gym {i}", sport="strength") for i in range(15)]
+    store.replace_scheduled_workouts(entries, today - timedelta(days=7), today + timedelta(days=14))
+    store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=80, body_battery_high=80))
+    out = tools.get_training_readiness(store)
+    assert "[schedule 114]" in out and "[schedule 214]" in out, out[-600:]
+
+
+def test_should_i_train_today_asked_anywhere_today_is_not_offered_again(today):
+    """Iter: "already asked today" counted only within one conversation - the
+    Today tab's own "Should I train today?" in another one did not count."""
+    from runspector.web import jobs
+
+    def card(kind, **extra):
+        job = jobs.new_job("p", title="t", kind=kind)
+        jobs.write_card(job["id"], {"kind": kind, "headline": "h", "verdict": "v", "bullets": ["b"],
+                                    "asked": today.isoformat(), **extra,
+                                    "generated_at": f"{today.isoformat()}T0{len(jobs.list_cards())}:00:00"})
+        return job["id"]
+
+    card("train-today")                                          # its own conversation
+    week = card("plan-week", next=[{"action": "train-today"}, {"action": "week-review"}])
+    shown = {c["id"]: c["next"] for c in jobs.public_cards()}
+    assert shown[week] == [{"action": "week-review", "why": ""}], shown[week]

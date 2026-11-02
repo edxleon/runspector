@@ -27,7 +27,7 @@ import {
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext, renderProposal } from "./cards.js";
 import { youHtml, newDraft, pick, resetRow, draftPatch } from "./you.js";
-import { dayPanelHtml, detailLine } from "./week.js";
+import { dayPanelHtml, detailLine, askedHtml, stripDays } from "./week.js";
 
 /* The /api/state answer IS the snapshot, plus `templates`, `jobs`, `cards`,
    `demo` and `claude_available` next to the snapshot keys. */
@@ -644,15 +644,16 @@ function askCoach(question) {
 }
 
 async function spawn(body, recompute) {
-  if (spawnRunning) { toast("Already starting — one moment.", { warn: true }); return; }
+  if (spawnRunning) { toast("Already starting — one moment.", { warn: true }); return false; }
   spawnRunning = true;
   document.querySelectorAll("button[data-tpl], button[data-ask]").forEach(b => (b.disabled = true));
   try {
-    await apiPost("/api/spawn", body);
+    const started = await apiPost("/api/spawn", body);
     toast("Running — the answer will appear in the Coach tab.",
           { action: "View", onAction: () => showView("coach"), ms: 8000 });
     await refresh();
     poller.start();
+    return started || true;
   } catch (e) {
     // The server's dedup: "already running" is only shown; "the card is on the
     // current data" offers »Recompute« — the same request with force:true.
@@ -674,6 +675,7 @@ async function spawn(body, recompute) {
               onAction: () => { showView("coach"); reload(); } });
       await refresh().catch(() => {});     // pull the job list, quietly
     }
+    return false;
   } finally {
     spawnRunning = false;
     // Do NOT unlock across the board: `refresh()` has just rendered the
@@ -979,7 +981,23 @@ function renderVo2() {
 /* The day of the strip the athlete opened, and the change they asked for
    there (roadmap 19). A change is a proposal the server files with the
    coach's word on it; the calendar changes only with "Put on watch". */
-const planEdit = { day: null, proposal: null, error: null, busy: false };
+const planEdit = { day: null, proposal: null, error: null, busy: false, asked: planAskedLoad(),
+                   week: 0 };
+
+/* The job a change asked in words under the strip started: its answer shows
+   there, with the change's button for the watch (live use: it sat in a card
+   on the Coach tab). Kept across a reload - a per-viewer convenience, and the
+   page works without it. */
+function planAskedLoad() {
+  try { return localStorage.getItem("runspector-plan-asked") || null; } catch { return null; }
+}
+function planAskedSave(id) {
+  planEdit.asked = id || null;
+  try {
+    if (id) localStorage.setItem("runspector-plan-asked", id);
+    else localStorage.removeItem("runspector-plan-asked");
+  } catch { /* private window: the answer still shows until a reload */ }
+}
 
 /** Which input of the strip this is: its data attribute and the entry it
  *  belongs to - the same input after a redraw has the same key. */
@@ -1016,9 +1034,14 @@ function weekPanelHtml(days, nowIso) {
   // (round 2: a stale copy hid the undo of a half-done move).
   const fresh = (D().week_changes || []).find(c => c.id === planEdit.proposal?.id);
   const shown = planEdit.proposal && (fresh ? { ...planEdit.proposal, ...fresh } : planEdit.proposal);
+  const askedJob = planEdit.asked && (D().jobs || []).find(j => j.id === planEdit.asked);
+  const askedCard = planEdit.asked && (D().cards || []).find(c => c.id === planEdit.asked);
+  if (planEdit.asked && !askedJob && !askedCard) planAskedSave(null);   // gone: forget it
+  const asked = askedHtml(askedJob || null, askedCard || null, askedCard?.proposal
+    ? renderProposal(askedCard.proposal, { canApply: can, applyHint: hint }) : "");
   const cell = planEdit.day && days.find(t => t.day === planEdit.day);
-  if (!cell) return `${madeHtml}${shown ? renderProposal(shown, { canApply: can, applyHint: hint }) : ""}`;
-  return `${madeHtml}${dayPanelHtml(cell, { todayIso: nowIso })}${
+  if (!cell) return `${asked}${madeHtml}${shown ? renderProposal(shown, { canApply: can, applyHint: hint }) : ""}`;
+  return `${asked}${madeHtml}${dayPanelHtml(cell, { todayIso: nowIso })}${
     planEdit.busy ? `<div class="note">Asking the coach…</div>` : ""}${
     planEdit.error ? `<div class="note proposal-warn">! ${esc(planEdit.error)}</div>` : ""}${
     shown ? renderProposal(shown, { canApply: can, applyHint: hint }) : ""}`;
@@ -1042,7 +1065,9 @@ function renderWeek() {
     return;
   }
   const nowIso = p.today || appToday();
-  const columns = days.map(t => {
+  const shownDays = stripDays(p, planEdit.week);
+  const nextWeek = shownDays !== days;
+  const columns = shownDays.map(t => {
     const planned = (t.planned || [])[0];
     const ran = (t.done || []).filter(g => isRunning(g.type));
     const strength = (t.done || []).filter(g => isStrength(g.type));
@@ -1077,8 +1102,8 @@ function renderWeek() {
       heldLabel(d) ? ` (${esc(heldLabel(d))})` : ""}</span>`).join(" · ");
   // What holds the plan back, in one line, where the plan is - for what the
   // strip shows as held: a day with a run shows the run.
-  const shown = days.filter(t => !(t.done || []).some(g => isRunning(g.type)))
-    .flatMap(t => t.planned || []).concat(p.upcoming || []);
+  const shown = shownDays.filter(t => !(t.done || []).some(g => isRunning(g.type)))
+    .flatMap(t => t.planned || []).concat(nextWeek ? [] : p.upcoming || []);
   const heldNote = heldLine(shown, D().check_ins || {}, (D().decision_today || {}).decision, fmtDay);
   const nothingPlanned = !days.some(t => (t.planned || []).length) && !(p.upcoming || []).length;
   // The strip is drawn again on every refresh: what is being typed or picked
@@ -1088,19 +1113,23 @@ function renderWeek() {
     .map(x => [planKey(x), x.value]));
   const focused = document.activeElement && el.contains(document.activeElement)
     ? planKey(document.activeElement) : null;
+  const toggle = (p.next || []).length
+    ? `<button type="button" class="linkish" data-plan-week="${nextWeek ? 0 : 1}">${
+        nextWeek ? "← This week" : "Next week →"}</button>` : "";
   el.innerHTML = `
-    <div class="subhead">This week</div>
+    <div class="plan-head"><span class="subhead">${nextWeek ? "Next week" : "This week"}</span>${toggle}</div>
     <div class="week-strip">${columns}</div>
-    ${weekPanelHtml(days, nowIso)}
+    ${heldNote ? `<div class="note" style="margin-top:6px">${esc(heldNote)}</div>` : ""}
+    ${upcoming ? `<div class="note" style="margin-top:8px">Coming up: ${upcoming}</div>` : ""}
+    ${nothingPlanned ? `<div class="thin-data">Nothing is scheduled on the watch. Workouts
+        in the Garmin calendar appear here after the next sync.</div>` : ""}
+    ${weekPanelHtml([...days, ...(p.next || [])], nowIso)}
     ${coachUnavailable() ? "" : `<div class="plan-say">
       <input type="text" class="plan-say-input" data-plan-say maxlength="500"
         aria-label="Tell the coach what to change in your week"
         placeholder="Tell the coach what to change - e.g. Friday instead of Saturday">
-      <button type="button" class="btn btn-quiet" data-plan-say-send>Ask</button></div>`}
-    ${upcoming ? `<div class="note" style="margin-top:8px">Coming up: ${upcoming}</div>` : ""}
-    ${heldNote ? `<div class="note">${esc(heldNote)}</div>` : ""}
-    ${nothingPlanned ? `<div class="thin-data">Nothing is scheduled on the watch. Workouts
-        in the Garmin calendar appear here after the next sync.</div>` : ""}`;
+      <button type="button" class="btn btn-quiet" data-plan-say-send
+        data-arm-label="Start? Tap again">Ask</button></div>`}`;
   for (const x of el.querySelectorAll(
     "[data-plan-say], [data-plan-minutes], [data-plan-kind], [data-plan-add-kind], [data-plan-add-minutes]")) {
     const k = planKey(x);
@@ -1481,6 +1510,14 @@ function refText(c) {
 function renderJobs() {
   mountJobs("#coach-jobs", D().jobs || [],
             { finished: true, title: "Coach jobs", onChange: () => refresh() });
+  // The ring at the top right while the coach works, on every tab.
+  const busy = document.getElementById("jobs-busy");
+  if (busy) {
+    const n = (D().jobs || []).filter(j => j.status === "queued" || j.status === "running").length;
+    busy.hidden = n === 0;
+    const word = busy.querySelector(".busy-word");
+    if (word) word.textContent = n > 1 ? `Coach working · ${n}` : "Coach working";
+  }
 }
 
 function renderCoach() {
@@ -1733,6 +1770,13 @@ document.addEventListener("input", ev => {
 
 /* The week strip's day and the changes made there (`week.js`). */
 function onPlanClick(ev) {
+  const weekBtn = ev.target.closest("button[data-plan-week]");
+  if (weekBtn) {
+    Object.assign(planEdit, { week: Number(weekBtn.dataset.planWeek) === 1 ? 1 : 0, day: null,
+                              proposal: null, error: null });
+    renderWeek();
+    return true;
+  }
   const dayBtn = ev.target.closest("button[data-plan-day]");
   if (dayBtn) {
     const day = dayBtn.dataset.planDay;
@@ -1743,6 +1787,14 @@ function onPlanClick(ev) {
   if (ev.target.closest("button[data-plan-close]")) {
     Object.assign(planEdit, { day: null, proposal: null, error: null });
     renderWeek();
+    return true;
+  }
+  if (ev.target.closest("button[data-plan-asked-close]")) { planAskedSave(null); renderWeek(); return true; }
+  if (ev.target.closest("button[data-plan-asked-open]")) {
+    const id = planEdit.asked;
+    showView("coach");
+    requestAnimationFrame(() => document.querySelector(`[data-card-id="${CSS.escape(id || "")}"]`)
+      ?.scrollIntoView({ block: "start" }));
     return true;
   }
   const entry = ev.target.closest("[data-plan-entry]");
@@ -1757,10 +1809,21 @@ function onPlanClick(ev) {
                   kind: entry.querySelector("[data-plan-kind]")?.value }]);
     return true;
   }
-  if (ev.target.closest("button[data-plan-say-send]")) {
-    const input = document.querySelector("[data-plan-say]");
-    const text = (input?.value || "").trim();
-    if (text) spawn({ question: text }, () => {}).then(() => { if (input) input.value = ""; });
+  const say = ev.target.closest("button[data-plan-say-send]");
+  if (say) {
+    const text = (document.querySelector("[data-plan-say]")?.value || "").trim();
+    if (!text) { toast("Type what to change first.", { warn: true }); return true; }
+    // An agent run is not free: a second tap starts it, as on the Coach tab.
+    armOrFire(say, "plan-say:" + text, async () => {
+      // Emptied BEFORE the run's refresh redraws the strip - which keeps what
+      // is typed - and given back if the run did not start (live use: the
+      // text stayed as if nothing had happened).
+      const field = () => document.querySelector("[data-plan-say]");
+      if (field()) field().value = "";
+      const r = await spawn({ question: text }, () => {});
+      if (r?.job?.id) { planAskedSave(r.job.id); renderWeek(); }
+      else if (!r && field() && !field().value) field().value = text;
+    });
     return true;
   }
   const add = ev.target.closest("button[data-plan-add]");
@@ -1781,7 +1844,24 @@ document.addEventListener("change", ev => {
   }
 });
 
+// Enter in a question field is its button - the same two taps (live use).
+document.addEventListener("keydown", ev => {
+  if (ev.key !== "Enter" || ev.isComposing) return;
+  const field = ev.target.closest?.("[data-plan-say], .ask-input");
+  if (!field) return;
+  ev.preventDefault();
+  const btn = field.matches("[data-plan-say]")
+    ? field.parentElement?.querySelector("button[data-plan-say-send]")
+    : document.querySelector("button[data-ask]");
+  btn?.click();
+});
+
 document.addEventListener("click", ev => {
+  if (ev.target.closest("#jobs-busy")) {
+    showView("coach");
+    requestAnimationFrame(() => document.getElementById("coach-jobs")?.scrollIntoView({ block: "start" }));
+    return;
+  }
   if (onPlanClick(ev)) return;
   if (ev.target.closest("button[data-signin]")) { openSignin(); return; }
   const said = ev.target.closest("button[data-check-in]");
