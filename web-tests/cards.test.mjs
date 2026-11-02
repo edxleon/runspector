@@ -386,6 +386,33 @@ test("evidenceToggle: a failed load is tried again only when the section is open
   assert.equal(evidenceToggle(false, { recorded: true }), null, "a loaded record is kept");
 });
 
+test("evidenceBody: a loaded record is in its section open or closed", async () => {
+  // Live use: opened, closed, the page drawn again (the job poll, an Apply),
+  // opened again - an empty section until a reload. The record was drawn only
+  // into an OPEN section, and the second opening loads nothing: it is cached.
+  const { evidenceBody } = await import("../src/runspector/web/static/cards.js");
+  const rec = { recorded: true, calls: [{ tool: "get_training_readiness", result: "HRV 52 ms" }],
+                check: { checked: true, numbers: 0 } };
+  assert.match(evidenceBody(rec), /What came back/);
+  assert.match(evidenceBody("loading"), /\S/, "a load on its way says so");
+  assert.equal(evidenceBody(undefined), "", "never tried: the opening loads it");
+});
+
+test("renderCard: a closed section keeps the record it loaded", async () => {
+  // The sequence from live use, as the page draws it: the record was loaded
+  // when the section was opened; it is closed, and the poll draws the card
+  // again - the section must still hold the record, or opening it again
+  // shows nothing (a second opening loads nothing: it is cached).
+  const { evidenceCache, renderCard: draw } = await import("../src/runspector/web/static/cards.js");
+  evidenceCache.set("j-ev", { recorded: true, calls: [{ tool: "get_trend", result: "HRV 52 ms" }],
+                              check: { checked: true, numbers: 0 } });
+  const html = draw({ id: "j-ev", kind: "train-today", headline: "h", bullets: ["b"],
+                      evidence: { recorded: true, reads: 1, numbers: 0 } }, { open: true });
+  assert.match(html, /data-det="j-ev\|evidence"(?! open)/, "the section is drawn closed");
+  assert.match(html, /What came back/);
+  evidenceCache.delete("j-ev");
+});
+
 test("runningFor: a running job's clock, by the second", async () => {
   const { runningFor } = await import("../src/runspector/web/static/cards.js");
   const t0 = Date.parse("2026-11-01T14:00:00Z");

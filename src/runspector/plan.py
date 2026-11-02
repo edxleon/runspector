@@ -544,6 +544,22 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
     if eased:
         notes.append(f"easy until {logic.check_in_hard_from(said, anchor):%a %d %b}: "
                      f"{logic.check_in_words(said, anchor)} - {'; '.join(eased)}")
+    # The day's own decision holds today the same way. Live use: the light was
+    # REST (HRV status LOW), the card on today said rest, and a week planned
+    # from today put an easy run on it - its card could only say "leave today's
+    # run undone", with the run already on the watch. No run on a REST day,
+    # nothing hard on an EASY one; the days after are tomorrow's call.
+    call = (snap.get("decision_today") or {}).get("decision")
+    if call == "rest":
+        gone = [f"{d:%a} {s.name}" for d, s in sessions if d == anchor]
+        if gone:
+            sessions = [(d, s) for d, s in sessions if d != anchor]
+            notes.append(f"no run today: the day's decision is REST - {'; '.join(gone)} not planned")
+    elif call == "easy":
+        sessions, eased = planning.easy_where(sessions, lambda d, s: d == anchor,
+                                              zones=zones, budget=budget)
+        if eased:
+            notes.append(f"easy today: the day's decision is EASY - {'; '.join(eased)}")
     if cap_line and any(n.startswith("sessions capped") for n in notes):
         notes = [cap_line if n.startswith("sessions capped") else n for n in notes]
     # Fitted to the calendar, never stacked on it: the athlete's plan wins.

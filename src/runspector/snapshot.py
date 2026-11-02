@@ -403,27 +403,46 @@ def build_plan(scheduled: list[dict], runs: list[dict], today: date) -> dict:
             "upcoming": sorted(upcoming, key=lambda x: x["day"])[:6]}
 
 
-def mark_held(plan: dict, said: dict | None, today: date, own_kinds: dict) -> None:
+def mark_held(plan: dict, said: dict | None, today: date, own_kinds: dict,
+              call: str | None = None) -> None:
     """In place: each planned entry the athlete's word holds back gets `held` -
     `rest` (no run today while ill or in pain) or `hold` (a hard session before
     the earliest day one may come back), from `logic.check_in_blocks`, the gate
     the planners ask. The week strip and "Coming up" then say what the call
-    says, instead of showing the plan as if nothing had been said."""
+    says, instead of showing the plan as if nothing had been said.
+
+    `call` is the day's own decision, and holds TODAY's entries the same way:
+    on `rest` the run is not for today, on `easy` a hard one is on hold. Live
+    use: the light said REST and the strip showed today's easy run as planned.
+    Not once today's run is done: the call it changed ("easy - the last hard
+    session was today") holds nothing back. `held_by` says which of the two
+    held an entry - `word` or `call` - so the line under the strip names the
+    right one."""
     from . import planning
 
-    if not said:
+    iso = today.isoformat()
+    if any("running" in str(g.get("type") or "").lower()
+           for d in plan.get("days") or [] if d.get("day") == iso for g in d.get("done") or []):
+        call = None
+    if not said and call not in ("rest", "easy"):
         return
     entries = [(d["day"], e) for d in plan.get("days") or [] for e in d.get("planned") or []]
     entries += [(e["day"], e) for e in plan.get("upcoming") or []]
     for day, e in entries:
-        if day < today.isoformat():         # what is behind today is not held by today's word
+        if day < iso:                       # what is behind today is not held by today's word
             continue
         hard = planning.calendar_kind(e, own_kinds) == "hard"
-        blocked = logic.check_in_blocks(said, today, date.fromisoformat(day), hard=hard)
+        blocked = (logic.check_in_blocks(said, today, date.fromisoformat(day), hard=hard)
+                   if said else None)
+        on_today = day == iso
         if blocked == logic.NO_RUN_TODAY:
-            e["held"] = "rest"
+            e["held"], e["held_by"] = "rest", "word"
+        elif on_today and call == "rest":
+            e["held"], e["held_by"] = "rest", "call"
         elif blocked:
-            e["held"] = "hold"
+            e["held"], e["held_by"] = "hold", "word"
+        elif on_today and call == "easy" and hard:
+            e["held"], e["held_by"] = "hold", "call"
 
 
 def build_aerobic(runs_wide: list[dict], *, today: date, ref_hr: int, weeks: int = WEEKS) -> dict:
@@ -728,9 +747,11 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
             planned_ahead[k] = e["day"]
     stimulus = logic.next_stimulus(runs_wide, today=today, measurement=vo2["measurement"],
                                    comeback_state=cb, planned_ahead=planned_ahead)
+    decision = build_decision(today_block, weeks, today, stimulus=stimulus, comeback=cb,
+                              check_ins=said)
     plan = build_plan(soft(store.get_scheduled_workouts, today - timedelta(days=today.weekday()),
                            today + timedelta(days=14), default=[]), runs, today)
-    mark_held(plan, said, today, own_kind)
+    mark_held(plan, said, today, own_kind, call=decision.get("decision"))
 
     return {
         "schema": SCHEMA,
@@ -738,8 +759,7 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
         "data_through": latest.isoformat() if latest else None,
         "stale_days": (today - latest).days if latest else None,
         "today": today_block,
-        "decision_today": build_decision(today_block, weeks, today, stimulus=stimulus,
-                                         comeback=cb, check_ins=said),
+        "decision_today": decision,
         "next_stimulus": stimulus,
         "check_ins": said,
         "sleep": build_sleep(series_rows),

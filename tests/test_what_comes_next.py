@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
+
 from conftest import make_activity, make_day
 from runspector import logic, plan, planning, snapshot, tools
 from runspector.models import ScheduledWorkout
@@ -1116,6 +1118,47 @@ def test_a_week_from_today_holds_no_run_today_while_the_athlete_is_ill(store, to
     assert "no run today" in p["preview"], p["preview"]
 
 
+def test_a_week_from_today_holds_no_run_today_on_a_rest_day(store, today):
+    """Live use: today's light was REST (HRV status LOW) and the card on today
+    said rest - then a week planned from today put an easy run on it, and its
+    card had to say "apply the week but leave today's run undone". A week
+    planned now gives the watch nothing the day's own decision calls off."""
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=1)
+    _weeks(store, monday, [200, 200, 200, 200])
+    _green(store, monday)
+    green = plan.propose_week(store, start=monday, today=monday, days_per_week=5,
+                              long_run_day="sun")
+    assert monday in _planned_kinds(green), green["preview"]      # the day it would have had
+    store.upsert_daily(make_day(monday, hrv_status="LOW", sleep_score=85, body_battery_high=90))
+    assert _decision(store, monday)["decision"] == "rest"
+    p = plan.propose_week(store, start=monday, today=monday, days_per_week=5, long_run_day="sun")
+    assert monday not in _planned_kinds(p), p["preview"]
+    assert "no run today: the day's decision is REST" in p["preview"], p["preview"]
+    # Tomorrow is not today: the rest of the week stands.
+    assert set(_planned_kinds(p)) == set(_planned_kinds(green)) - {monday}, p["preview"]
+
+
+def test_a_week_from_today_holds_no_hard_session_today_on_an_easy_day(store, today):
+    """The same promise on an EASY light: a quality session today becomes the
+    easy run the plan would offer instead, and the preview says why."""
+    _weeks(store, today, [200, 200, 200, 200])
+    for offset in range(7):
+        start = today + timedelta(days=offset)
+        _green(store, start)
+        green = plan.propose_week(store, start=start, today=start, days_per_week=5,
+                                  long_run_day="sun")
+        if _planned_kinds(green).get(start) in planning.HARD_KINDS:
+            break
+    else:
+        pytest.fail("no start day with a quality session on it")
+    store.upsert_daily(make_day(start, hrv_status="UNBALANCED", sleep_score=85,
+                                body_battery_high=90))
+    assert _decision(store, start)["decision"] == "easy", _decision(store, start)
+    p = plan.propose_week(store, start=start, today=start, days_per_week=5, long_run_day="sun")
+    assert _planned_kinds(p).get(start) == "easy", p["preview"]
+    assert "easy today: the day's decision is EASY" in p["preview"], p["preview"]
+
+
 def test_a_cold_that_ran_out_and_is_said_again_is_one_illness(store, today):
     """Fresh reader: "ill" on Monday, nothing until it ran out on Thursday,
     "ill" again on Thursday, "over" on Saturday - the second tap began a new
@@ -1171,6 +1214,80 @@ def test_the_week_strip_says_what_the_athletes_word_holds_back(store, today):
     assert [e.get("held") for e in snap["plan"]["upcoming"]] == [None]
     assert snap["check_ins"]["hard_from"] == (today + timedelta(days=2)).isoformat()
     assert snap["check_ins"]["words"] == "you said you are ill"
+
+
+def test_the_week_strip_says_what_the_days_own_call_holds_back(store, today):
+    """Live use: the light said REST (HRV status LOW) and the week strip showed
+    today's easy run as planned - the plan and the call disagreed on one
+    screen, as they did for a check-in before. Today's entries follow the
+    day's call; tomorrow's are tomorrow's."""
+    for wid, name, kind, day in ((4712, "Easy 40", "easy", today),
+                                 (4711, "VO2max 5x4 min", "vo2max", today + timedelta(days=1))):
+        store.record_workout(wid, name=name, kind=kind, spec_json="{}", schedule_id=wid,
+                             scheduled_day=day)
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(4712, today, workout_id=4712, title="Easy 40", sport="running"),
+         ScheduledWorkout(4711, today + timedelta(days=1), workout_id=4711, title="VO2max 5x4 min",
+                          sport="running")],
+        today - timedelta(days=7), today + timedelta(days=14))
+    store.upsert_daily(make_day(today, hrv_status="LOW", sleep_score=85, body_battery_high=90))
+    snap = snapshot.assemble(store, today=today)
+    assert snap["decision_today"]["decision"] == "rest"
+    held = {e["title"]: e.get("held") for d in snap["plan"]["days"] for e in d["planned"]}
+    assert held == {"Easy 40": "rest", "VO2max 5x4 min": None}, held
+    # An EASY call holds today's hard session only.
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(4711, today, workout_id=4711, title="VO2max 5x4 min", sport="running")],
+        today - timedelta(days=7), today + timedelta(days=14))
+    store.upsert_daily(make_day(today, hrv_status="UNBALANCED", sleep_score=85,
+                                body_battery_high=90))
+    snap = snapshot.assemble(store, today=today)
+    assert snap["decision_today"]["decision"] == "easy"
+    held = {e["title"]: e.get("held") for d in snap["plan"]["days"] for e in d["planned"]}
+    assert held == {"VO2max 5x4 min": "hold"}, held
+    assert [e.get("held_by") for d in snap["plan"]["days"] for e in d["planned"]] == ["call"]
+
+
+def test_a_session_run_today_is_not_held_by_the_call_it_changed(store, today):
+    """Review: VO2max planned today on a green light, run, synced - the 48-hour
+    rule then makes the day EASY, and the strip said "On hold today ... run the
+    easy option instead" under the run just done. A run done today is the
+    day's session; the call it changed holds nothing back."""
+    store.record_workout(4711, name="VO2max 5x4 min", kind="vo2max", spec_json="{}",
+                         schedule_id=4711, scheduled_day=today)
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(4711, today, workout_id=4711, title="VO2max 5x4 min", sport="running")],
+        today - timedelta(days=7), today + timedelta(days=14))
+    store.upsert_daily(make_day(today, hrv_status="UNBALANCED", sleep_score=85,
+                                body_battery_high=90))
+    store.upsert_activity(make_activity(9001, today, name="VO2max 5x4 min"))
+    snap = snapshot.assemble(store, today=today)
+    assert snap["decision_today"]["decision"] == "easy"
+    assert [d["done"] for d in snap["plan"]["days"] if d["day"] == today.isoformat()][0]
+    held = {e["title"]: e.get("held") for d in snap["plan"]["days"] for e in d["planned"]}
+    assert held == {"VO2max 5x4 min": None}, held
+
+
+def test_a_hold_by_the_light_is_not_put_down_to_a_check_in(store, today):
+    """Review: "stressed" said (it holds no run) and the light REST - the strip
+    held today's easy run and the line blamed the stress. Each hold says what
+    held it."""
+    store.record_workout(4712, name="Easy 40", kind="easy", spec_json="{}", schedule_id=4712,
+                         scheduled_day=today)
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(4712, today, workout_id=4712, title="Easy 40", sport="running")],
+        today - timedelta(days=7), today + timedelta(days=14))
+    store.upsert_daily(make_day(today, hrv_status="LOW", sleep_score=85, body_battery_high=90))
+    store.say_check_in("stressed", today)
+    snap = snapshot.assemble(store, today=today)
+    assert snap["check_ins"]["words"]
+    (entry,) = [e for d in snap["plan"]["days"] for e in d["planned"]]
+    assert (entry.get("held"), entry.get("held_by")) == ("rest", "call"), entry
+    # Ill: the athlete's word holds it, and says so.
+    store.say_check_in("ill", today)
+    (entry,) = [e for d in snapshot.assemble(store, today=today)["plan"]["days"]
+                for e in d["planned"]]
+    assert (entry.get("held"), entry.get("held_by")) == ("rest", "word"), entry
 
 
 def test_a_session_already_behind_today_is_not_held_back(store, today):

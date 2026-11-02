@@ -212,6 +212,15 @@ export function evidenceToggle(open, cached) {
   return cached && typeof cached === "object" && cached.error ? "forget" : null;
 }
 
+/** What a "How this card was made" section holds: its record whenever one
+ *  is loaded, open or closed. Drawn only into an open section, it was gone
+ *  after the section was closed and the page drawn again (the job poll, an
+ *  Apply) - and opening it again loaded nothing, the record being cached, so
+ *  the section stayed empty until a reload. */
+export function evidenceBody(cached, det = () => "") {
+  return cached === undefined ? "" : renderEvidence(cached, det);
+}
+
 /** A step's arguments in words: `{"period_days": 84}` → "last 84 days". What
  *  is not known stays as it came, short. */
 export function argsWords(args) {
@@ -338,7 +347,9 @@ const state = new WeakMap();         // container element → {cards, opts}
 const jobsState = new WeakMap();     // container element → {jobs, opts}
 const followUps = new Map();         // card id → {job_id, ts}
 const jobLogs = new Map();           // job id → lines[] of the open log
-const evidenceCache = new Map();     // card id → its record, "loading" or {error}
+// card id → its record, "loading" or {error}. Exported for the tests: whether
+// a closed section holds a loaded record is renderCard's to get right.
+export const evidenceCache = new Map();
 // Expanded <details> survive the re-render: the job poll rebuilds every 8 s,
 // and "3 more points" would snap shut each time — unusable while reading a
 // long analysis. Key "<id>|<name>".
@@ -432,11 +443,10 @@ export function renderCard(c, opts = {}) {
     const metaLine = tail.length ? `<div class="card-metaline">${tail.map(esc).join(" · ")}</div>` : "";
     // What the coach looked at - loaded when opened (`install()`), from the
     // card's own record. Cards older than the record have none.
-    const evOpen = openDetails.has(`${id}|evidence`);
     const evidence = c.evidence
       ? `<details class="card-more card-evidence" ${det("evidence")} data-evidence="${esc(id)}">
            <summary>How this card was made · ${esc(evidenceSummary(c.evidence))}</summary>${
-           evOpen ? renderEvidence(evidenceCache.get(id), n => det("evidence-" + n)) : ""}</details>`
+           evidenceBody(evidenceCache.get(id), n => det("evidence-" + n))}</details>`
       : "";
     const proposal = renderProposal(c.proposal, opts);
     const fb = opts.feedback !== false ? renderFeedback(id, c.feedback) : "";

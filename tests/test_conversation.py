@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from datetime import timedelta
 
 import pytest
 
@@ -402,6 +403,33 @@ def test_the_card_list_carries_the_next_steps_checked():
     root = _card(next=[{"action": "plan-week", "why": "x" * 200}, {"action": "apply_workout"}])
     (c,) = [c for c in jobs.public_cards() if c["id"] == root]
     assert c["next"] == [{"action": "plan-week", "why": "x" * 79 + "…"}]
+
+
+def test_a_step_the_conversation_took_today_is_not_offered_again(today):
+    """Live use: a VO2max card offered "should I train today?" (taken: rest
+    today), then "plan the week" (taken) - and the week's card offered "should
+    I train today?" once more, the question just answered. A step taken in
+    the conversation today is not shown again today; tomorrow it is a new
+    question, and the button is back."""
+    root = _card(next=[{"action": "plan-week"}, {"action": "train-today"}],
+                 asked=today.isoformat())
+    _card(kind="train-today", parent=root, via="next", next=[{"action": "plan-week"}],
+          asked=today.isoformat())
+    week = _card(kind="plan-week", parent=root, via="next",
+                 next=[{"action": "train-today", "why": "check tomorrow's light"},
+                       {"action": "week-review"}], asked=today.isoformat())
+    shown = {c["id"]: c["next"] for c in jobs.public_cards()}
+    assert shown[root] is None, shown[root]
+    assert shown[week] == [{"action": "week-review", "why": ""}], shown[week]
+    # Another conversation took no step: its own offer stands.
+    other = _card(kind="week-review", next=[{"action": "train-today"}], asked=today.isoformat())
+    assert {c["id"]: c["next"] for c in jobs.public_cards()}[other] == [
+        {"action": "train-today", "why": ""}]
+    # The next morning the conversation's steps are new questions again.
+    for cid, c in jobs.list_cards():
+        jobs.write_card(cid, {**c, "asked": (today - timedelta(days=1)).isoformat()})
+    shown = {c["id"]: c["next"] for c in jobs.public_cards()}
+    assert [n["action"] for n in shown[week]] == ["train-today", "week-review"], shown[week]
 
 
 def test_the_newest_answer_is_never_what_the_cap_cuts():

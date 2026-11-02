@@ -739,6 +739,35 @@ test("heldLabel: a planned session the athlete's word holds back says so", async
   assert.equal(heldLabel({}), "");
 });
 
+test("heldByCall: a session the day's own call holds back says why", async () => {
+  // Live use: the light said Rest, the strip showed today's run as planned.
+  const { heldByCall } = await import("../src/runspector/web/static/logic.js");
+  assert.match(heldByCall("rest"), /not today.*Rest/i);
+  assert.match(heldByCall("easy"), /easy option/);
+  assert.equal(heldByCall("hard"), "");
+  assert.equal(heldByCall(undefined), "");
+});
+
+test("heldLine: the line under the strip names what held each entry", async () => {
+  // Review: "stressed" open (it holds no run) and the light Rest - the line
+  // blamed the stress; and after a hard session run today the strip told the
+  // athlete to run the easy option instead.
+  const { heldLine } = await import("../src/runspector/web/static/logic.js");
+  const stressed = { words: "you said you are stressed" };
+  const byCall = heldLine([{ held: "rest", held_by: "call" }], stressed, "rest");
+  assert.match(byCall, /today's call is Rest/);
+  assert.doesNotMatch(byCall, /stressed/);
+  const ill = { words: "you said you are ill", hard_from: "2026-06-12" };
+  assert.equal(heldLine([{ held: "rest", held_by: "word" }], ill, "rest", d => "D:" + d),
+               "On hold because you said you are ill - hard sessions come back from D:2026-06-12 at the earliest.");
+  const both = heldLine([{ held: "hold", held_by: "word" }, { held: "rest", held_by: "call" }], ill, "rest");
+  assert.match(both, /^On hold because you said you are ill.*Not today: today's call is Rest/);
+  assert.equal(heldLine([{ held: "rest" }], ill, "rest").startsWith("On hold because"), true,
+               "an entry from before the source was recorded counts as the word");
+  assert.equal(heldLine([], ill, "rest"), "", "nothing shown held: no line");
+  assert.equal(heldLine([{ title: "Easy" }], {}, "easy"), "");
+});
+
 test("You tab: what the AI reads and what is kept, in plain words", async () => {
   const { recordCard, chatStep, youHtml } = await import("../src/runspector/web/static/you.js");
   assert.equal(recordCard(null), "");

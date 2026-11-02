@@ -265,10 +265,15 @@ def _cap(value, length: int) -> str:
 NEXT_ACTIONS = ("plan-week", "train-today", "week-review", "why-vo2max")
 
 
-def _public_next(raw) -> list[dict] | None:
+def _public_next(raw, taken: frozenset = frozenset()) -> list[dict] | None:
+    """The steps a card offers, from the app's menu - without one its
+    conversation already took today (`taken`): live use, a week's card offered
+    "should I train today?" right under the answer to it. Tomorrow that step
+    is a new question, and the button is back."""
     out = [{"action": n["action"], "why": _cap(n.get("why"), 80)}
            for n in (raw if isinstance(raw, list) else [])
-           if isinstance(n, dict) and n.get("action") in NEXT_ACTIONS][:2]
+           if isinstance(n, dict) and n.get("action") in NEXT_ACTIONS
+           and n["action"] not in taken][:2]
     return out or None
 
 
@@ -432,6 +437,12 @@ def public_cards(limit: int = 10) -> list[dict]:
         if roots[cid] not in keep:
             keep.append(roots[cid])
     keep_set = set(keep[:limit])
+    # The kinds each conversation was asked today - its next steps taken.
+    today = paths.today().isoformat()
+    taken: dict[str, set[str]] = {}
+    for cid, c in listed:
+        if c.get("asked") == today:
+            taken.setdefault(roots[cid], set()).add(str(c.get("kind") or ""))
     # What each card kept, from where it is kept - a card's own field could be
     # older than the guard that writes it now.
     from .. import logic, profile
@@ -478,7 +489,7 @@ def public_cards(limit: int = 10) -> list[dict]:
             # the card offers (checked against the app's menu again), the facts
             # it kept, and whether it was started as a next step.
             "question": _cap(question_of(c), 1000) or None,
-            "next": _public_next(c.get("next")),
+            "next": _public_next(c.get("next"), frozenset(taken.get(roots[cid], ()))),
             "told": kept.get(cid) or None,
             # What it would have noted, had the list for the coach not been full.
             "told_full": c.get("told_full") is True,
@@ -488,7 +499,7 @@ def public_cards(limit: int = 10) -> list[dict]:
             # today. By `asked` - the app's day it was written - never `day`,
             # the model's, which is a run's date on a run's card.
             "check_in": (c.get("check_in") if c.get("check_in") in logic.CHECK_IN_KINDS
-                         and c.get("asked") == paths.today().isoformat() else None),
+                         and c.get("asked") == today else None),
         })
     return out
 

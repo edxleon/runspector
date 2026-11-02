@@ -21,7 +21,7 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, monotonyLine, garminReadinessLine, weightLine, syncOnReturn, checkInView, checkInToast, decidedByWord, heldLabel, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, monotonyLine, garminReadinessLine, weightLine, syncOnReturn, checkInView, checkInToast, decidedByWord, heldLabel, heldLine, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
   plainReason, plainNoFlags, todayAction, callWhy, GLOSSARY, plainLabel, vo2ChangeText,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
@@ -1022,14 +1022,11 @@ function renderWeek() {
   const upcoming = (p.upcoming || []).slice(0, 3).map(d =>
     `<span>${esc(fmtDay(d.day))} ${esc(shortTitle(d.title))}${
       heldLabel(d) ? ` (${esc(heldLabel(d))})` : ""}</span>`).join(" · ");
-  // What holds the plan back, in one line, where the plan is.
-  const said = D().check_ins || {};
-  const anyHeld = days.some(t => (t.planned || []).some(e => e.held))
-    || (p.upcoming || []).some(e => e.held);
-  const heldNote = anyHeld && said.words
-    ? `On hold because ${said.words}${said.hard_from
-        ? ` - hard sessions come back from ${fmtDay(said.hard_from)} at the earliest` : ""}.`
-    : "";
+  // What holds the plan back, in one line, where the plan is - for what the
+  // strip shows as held: a day with a run shows the run.
+  const shown = days.filter(t => !(t.done || []).some(g => isRunning(g.type)))
+    .flatMap(t => t.planned || []).concat(p.upcoming || []);
+  const heldNote = heldLine(shown, D().check_ins || {}, (D().decision_today || {}).decision, fmtDay);
   const nothingPlanned = !days.some(t => (t.planned || []).length) && !(p.upcoming || []).length;
   el.innerHTML = `
     <div class="subhead">This week</div>

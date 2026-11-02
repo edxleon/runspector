@@ -543,6 +543,28 @@ export function heldLabel(entry) {
   return { rest: "not today", hold: "on hold" }[(entry || {}).held] || "";
 }
 
+/** Why the strip holds today's session by the day's own call
+ *  (`snapshot.mark_held`), or "". */
+export function heldByCall(call) {
+  return call === "rest" ? "Not today: today's call is Rest - the run on your calendar is not run."
+    : call === "easy" ? "On hold today: today's call is Easy - run the easy option instead."
+    : "";
+}
+
+/** The line under the week strip: why what it shows as held is held - the
+ *  athlete's word, the day's own call, or both, as `held_by` says
+ *  (`snapshot.mark_held`). `entries` are the ones the strip shows: none on a
+ *  day that already has a run. A hold by the light is never put down to a
+ *  check-in that happens to be open ("stressed" holds no run). */
+export function heldLine(entries, said, call, fmt = d => d) {
+  const by = new Set((entries || []).filter(e => e && e.held).map(e => e.held_by || "word"));
+  const word = by.has("word") && said && said.words
+    ? `On hold because ${said.words}${said.hard_from
+        ? ` - hard sessions come back from ${fmt(said.hard_from)} at the earliest` : ""}.`
+    : "";
+  return [word, by.has("call") ? heldByCall(call) : ""].filter(Boolean).join(" ");
+}
+
 /** The toast after a check-in button, from the server's `result`
  *  (`store.say_check_in` / `end_check_in` / `take_back_check_in`). Easy days
  *  follow only an illness or a pain, never sore legs or stress. */
