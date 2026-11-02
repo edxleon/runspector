@@ -20,3 +20,6 @@
 | 2026-11-02 17:53 | sonnet | 17/19 | a-restart-in-german; the-week-changed-in-words | sonnet, final prompts (run 2 of 2) (a card 16 s median) |
 | 2026-11-02 18:02 | sonnet | 17/19 | fixed-days-and-a-question-too-early; nothing-here-to-keep | sonnet, final (run 1 of 2) (a card 17 s median) |
 | 2026-11-02 18:05 | sonnet | 19/19 | - | sonnet, final (run 2 of 2) (a card 14 s median) |
+| 2026-11-02 18:08 | sonnet | 19/19 | - | final comparison: sonnet (a card 16 s median) |
+| 2026-11-02 18:11 | sonnet | 19/19 | - | final comparison: sonnet (a card 14 s median) |
+| 2026-11-02 18:21 | opus | 18/19 | a-restart-in-german | final comparison: opus (a card 63 s median) |

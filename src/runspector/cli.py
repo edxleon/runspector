@@ -268,7 +268,11 @@ def cmd_doctor(args) -> int:
         # takes the only file-side trace of a half-written session with it, and
         # an uploaded workout that never got a day is the one the athlete will
         # not find on the watch.
-        orphans = [w for w in store_for_plan.own_workouts() if not w["schedule_id"]]
+        # ...but not one the athlete moved or took out on purpose: scheduled
+        # again, it would stand in the week twice.
+        moved = plan.taken_off_workouts()
+        orphans = [w for w in store_for_plan.own_workouts()
+                   if not w["schedule_id"] and w["workout_id"] not in moved]
     except Exception as exc:  # noqa: BLE001 — a diagnostic never tracebacks
         check(f"proposals unreadable ({type(exc).__name__})", False, fatal=False)
     else:

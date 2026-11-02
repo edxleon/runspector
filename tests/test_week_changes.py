@@ -1050,3 +1050,30 @@ def test_an_answer_without_a_card_is_asked_for_once_more(tmp_path, monkeypatch, 
                                              "num_turns": 3}), "")))
     again = jobs.new_job("p", title="t", kind="why-vo2max")
     assert agent.run(again, db=str(tmp_path / "x.db"))["status"] == "failed" and len(calls) == 2
+
+
+def test_doctor_does_not_ask_to_put_back_what_the_athlete_moved(today, capsys):
+    """Fresh reader: after an ordinary "Saturday to Friday", `runspector
+    doctor` said Saturday's workout sat in the library without a day and told
+    the athlete to schedule it again - a second session in the week."""
+    from runspector import cli
+    from runspector.store import Store
+
+    store = Store()                          # the database doctor reads
+    monday = _the_return_week(store, today)
+    fri, sat = monday + timedelta(days=4), monday + timedelta(days=5)
+    fake = FakeGarmin(schedule={16: {"workoutId": 4016, "date": sat.isoformat()}})
+    p = plan.propose_change(store, [{"schedule_id": 16, "action": "move", "day": fri.isoformat()}],
+                            today=today)
+    plan.apply(store, fake, p["id"], today=today)
+    cli.main(["doctor", "--offline"])
+    out = capsys.readouterr().out
+    assert "without a day" not in out, out
+
+
+def test_the_coach_sees_the_calendar_before_the_watch_has_any_data(store, today):
+    """Fresh reader: with no readiness data yet the tool returned before the
+    calendar - a change asked in words had no schedule id to name."""
+    monday = _the_return_week(store, today)
+    out = tools.get_training_readiness(store)
+    assert "No data yet" in out and "[schedule 11]" in out and f"Mon {monday.isoformat()}" in out, out

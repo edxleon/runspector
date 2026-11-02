@@ -274,11 +274,18 @@ def get_training_readiness(store: Store) -> str:
     if r["verdict"] is None:
         today = paths.today()
         said = _check_in_lines(_said(store, today), today)
+        # The calendar all the same: a change asked in words names its entries
+        # by schedule id, also before the watch has sent a value (fresh reader).
+        cal = store.get_scheduled_workouts(today, today + timedelta(days=14))
+        listed = ("\n\nGarmin calendar, next 14 days (untrusted labels): " + "; ".join(
+            f"{'TODAY ' if p['day'] == today.isoformat() else ''}"
+            f"{_WEEKDAY[date.fromisoformat(p['day']).weekday()]} {p['day']} \"{p['title'] or '?'}\" "
+            f"[schedule {p['schedule_id']}]" for p in cal[:30])) if cal else ""
         if not said:
-            return "No data yet for a readiness verdict (sync pending?)."
+            return "No data yet for a readiness verdict (sync pending?)." + listed
         # The athlete's word decides the day without the watch's values.
         return "\n".join(["No data yet for a readiness verdict (sync pending?).", *said, "",
-                          _decision_block(_decide(store, today))])
+                          _decision_block(_decide(store, today))]) + listed
     s = r["signals"]
     rhr = "-" if s.get("resting_hr") is None else (
         f"{s['resting_hr']} bpm" + (f" (baseline {s['resting_hr_baseline']})"

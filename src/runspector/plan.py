@@ -1717,6 +1717,26 @@ def pending_of(p: dict, today: date | None = None) -> int:
                and str(it.get("day") or anchor) >= anchor)
 
 
+def taken_off_workouts() -> set[int]:
+    """This app's workouts whose calendar entry a change or a swap took off on
+    purpose and did not put back - in the library without a day because the
+    athlete moved or removed them, not because a write stopped half way
+    (fresh reader: `doctor` told the athlete to schedule them again)."""
+    out: set[int] = set()
+    for f in paths.proposals_dir().glob("p-*.json"):
+        d = paths.read_json(f)
+        if not isinstance(d, dict):
+            continue
+        for r in d.get("replaces") or []:
+            if isinstance(r, dict) and r.get("removed") is True and r.get("restored") is not True \
+                    and isinstance(r.get("workout_id"), int):
+                out.add(r["workout_id"])
+        for it in d.get("items") or []:
+            if isinstance(it, dict) and it.get("taken_off_by") and isinstance(it.get("workout_id"), int):
+                out.add(it["workout_id"])
+    return out
+
+
 def _after_removal(store: Store, r: dict, proposal_id: str, warnings: list[str]) -> None:
     """After an entry came off Garmin: the app's record of where its workout
     sits, and the proposal that put it there, stay true - that week's undo
