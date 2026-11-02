@@ -18,7 +18,6 @@ a release note that cites one still points at the right section. The order is th
 |---|---|---|---|
 | 24 | Set up and started without a terminal: an app to double-click, the Garmin sign-in on the page, the coach without Claude Code | high (everyone who is not a developer never gets past the install) | high |
 | 15 | The light rests a day on one weak signal, and holds days easy for too little load | high (every morning) | small in code, medium in evals |
-| 25 | A card as a conversation: ask on until it is clear, a button for the next step, and what you tell the coach kept for later - *done for v0.9, not yet released* | high (every card) | medium |
 | 22 | What each run did against what it was meant to be - easy kept easy, hard made hard - and how that changes over the months - *the count by zones shipped in v0.8; the session's intent and the fading run open* | high (every run, the most common mistake) | medium to high |
 | 6 | The proposed session matched against the run that followed, and the same reps compared across weeks | high | medium |
 | 16 | A week planned and put on the watch without Claude | high (anyone without Claude Code) | small to medium |
@@ -28,7 +27,6 @@ a release note that cites one still points at the right section. The order is th
 | 2 | How a run felt - *the rest of the item is in v0.7* | medium | small |
 | 17 | The planned week's load shown before the yes | medium (trust, and a check on the planner) | small |
 | 18 | What kind of strength day it was: legs, upper body, whole body | medium (runners who lift) | small |
-| 19 | The planned week changed by the athlete: a session moved, shortened, swapped or taken out, in a tap or in words, with the coach's word on it - *done for v0.10, not yet released* | high (every planned week that meets a real week) | medium |
 | 20 | A fitness trend beside VO2max: aerobic decoupling on steady runs | medium | medium |
 | 13 | Deeper history on first install | medium (install day only) | medium |
 | 21 | Installed from Claude Desktop in one file | medium (install day, Claude Desktop users) | medium |
@@ -64,6 +62,8 @@ preparation (14) stays last for the reasons in its section.
 | 11 | Garmin's own readiness beside the app's | v0.6 |
 | 12 | Body weight in the sync | v0.6 |
 | 10 | Where each statement on a card comes from, and a record of what the AI read for it | v0.8 |
+| 25 | A card as a conversation: ask on under it, a button for the next step, what you tell the coach kept for later | v0.9 |
+| 19 | The planned week changed by the athlete: moved, shortened, swapped, taken out or added, in a tap or in words, with the coach's word on it | v0.10 |
 
 Each from 2 on keeps its section below, with what it does and what it left open, because the reasoning behind
 the order is the point of this file. The order they had, and why: progression without a plan (1)
@@ -348,7 +348,7 @@ a single session could not be moved, shortened or taken out - and the week strip
 day and nothing about what was behind it. Found in live use: a week was planned on Mon, Tue and Sat,
 and the athlete saw it did not fit.
 
-*Done for v0.10, not yet released.* The athlete decides; the coach says what it thinks of it.
+*Shipped in v0.10.* The athlete decides; the coach says what it thinks of it.
 - **A tap on a day** of the week strip opens it: what the session is (its kind in words, minutes,
   distance, average pace, the steps of a hard one, its easier option), and the changes - move it to a
   day of the next two weeks, another length or kind, take it out, or add a run on an empty day. A
@@ -490,7 +490,7 @@ notarising a launcher is the cost to weigh; a packaged app of its own is not the
 
 ## 25. A card as a conversation
 
-*Done for v0.9 (not yet released):* every question on a card or on an answer in it joins the card's
+*Shipped in v0.9:* every question on a card or on an answer in it joins the card's
 conversation (`jobs.conversation_root`, one answer for the server, the card list and the cleanup, which
 keep and drop a conversation whole), and each answer is written with the card and the conversation
 before it - the newest answers first and whole, within their own budget (`server.CONVERSATION_CAP`), at
