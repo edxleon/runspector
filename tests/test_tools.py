@@ -2747,3 +2747,21 @@ def test_the_athlete_can_say_since_when(store, today):
                 (today - timedelta(days=8)).isoformat()):
         assert tools.check_in(store, "pain", since=bad).startswith("since must be"), bad
     assert all(r["kind"] == "ill" for r in store.check_ins(today))
+
+
+def test_the_install_check_counts_the_tools_the_server_registers():
+    """A new tool (propose_change) left the installed-wheel check at 17: CI's
+    install job went red on every OS after the suite had passed. The count is
+    read from the server, so the next tool cannot slip past."""
+    import asyncio
+    import importlib.util
+    import pathlib
+
+    from runspector import mcp_server
+
+    spec = importlib.util.spec_from_file_location(
+        "install_check", pathlib.Path(__file__).resolve().parents[1] / "scripts" / "install_check.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    registered = asyncio.run(mcp_server.mcp.list_tools())
+    assert len(registered) == module.EXPECTED_TOOLS, (module.EXPECTED_TOOLS, len(registered))
