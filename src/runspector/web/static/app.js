@@ -25,8 +25,9 @@ import {
   plainReason, plainNoFlags, todayAction, callWhy, GLOSSARY, plainLabel, vo2ChangeText,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
-         setCardContext } from "./cards.js";
+         setCardContext, renderProposal } from "./cards.js";
 import { youHtml, newDraft, pick, resetRow, draftPatch } from "./you.js";
+import { dayPanelHtml, detailLine } from "./week.js";
 
 /* The /api/state answer IS the snapshot, plus `templates`, `jobs`, `cards`,
    `demo` and `claude_available` next to the snapshot keys. */
@@ -975,6 +976,38 @@ function renderVo2() {
    threshold training, the base-fitness signal, and the most tangible
    translation of the numbers. */
 
+/* The day of the strip the athlete opened, and the change they asked for
+   there (roadmap 19). A change is a proposal the server files with the
+   coach's word on it; the calendar changes only with "Put on watch". */
+const planEdit = { day: null, proposal: null, error: null, busy: false };
+
+async function fileChange(edits) {
+  if (planEdit.busy) return;
+  Object.assign(planEdit, { busy: true, error: null, proposal: null });
+  renderWeek();
+  try {
+    const r = await apiPost("/api/week/change", { edits });
+    planEdit.proposal = r?.proposal || null;
+  } catch (e) {
+    planEdit.error = e.status === 403 ? null : (e.message || "server gone");
+  }
+  planEdit.busy = false;
+  renderWeek();
+  document.querySelector("[data-proposal]")?.scrollIntoView({ block: "nearest" });
+}
+
+function weekPanelHtml(days, nowIso) {
+  const cell = planEdit.day && days.find(t => t.day === planEdit.day);
+  if (!cell) return "";
+  const can = !D().demo && D().garmin_session !== false;
+  return `${dayPanelHtml(cell, { todayIso: nowIso })}${
+    planEdit.busy ? `<div class="note">Asking the coach…</div>` : ""}${
+    planEdit.error ? `<div class="note proposal-warn">! ${esc(planEdit.error)}</div>` : ""}${
+    planEdit.proposal ? renderProposal(planEdit.proposal, {
+      canApply: can, applyHint: D().demo ? "demo data - no Garmin account to write to"
+                                         : "needs a Garmin login (runspector login)" }) : ""}`;
+}
+
 function renderWeek() {
   const p = D().plan || {};
   const el = document.getElementById("week");
@@ -1014,10 +1047,14 @@ function renderWeek() {
         ? `<span class="w-t">${esc(weekLabel(planned.title))}</span>
            <span class="w-s">${past ? "missed" : held || "planned"}</span>`
         : strength.length ? `<span class="w-t muted">Gym</span>` : `<span class="w-t muted">–</span>`;
-    const tip = [fmtDay(t.day), run ? shortTitle(run.name) : planned ? shortTitle(planned.title) : ""]
+    const tip = [fmtDay(t.day), run ? shortTitle(run.name) : planned ? detailLine(planned) : ""]
       .filter(Boolean).join(" · ");
-    return `<div class="w-day${cls}${isToday ? " w-today" : ""}" title="${esc(tip)}">
-      <span class="w-d">${esc(weekdayShort(t.day))}</span>${content}</div>`;
+    // A button: a tap opens the day - what is behind the box, and the changes
+    // the athlete can make (roadmap 19).
+    const open = planEdit.day === t.day;
+    return `<button type="button" class="w-day${cls}${isToday ? " w-today" : ""}${open ? " w-open" : ""}"
+      data-plan-day="${esc(t.day)}" aria-expanded="${open}" title="${esc(tip)}">
+      <span class="w-d">${esc(weekdayShort(t.day))}</span>${content}</button>`;
   }).join("");
   const upcoming = (p.upcoming || []).slice(0, 3).map(d =>
     `<span>${esc(fmtDay(d.day))} ${esc(shortTitle(d.title))}${
@@ -1028,13 +1065,24 @@ function renderWeek() {
     .flatMap(t => t.planned || []).concat(p.upcoming || []);
   const heldNote = heldLine(shown, D().check_ins || {}, (D().decision_today || {}).decision, fmtDay);
   const nothingPlanned = !days.some(t => (t.planned || []).length) && !(p.upcoming || []).length;
+  // The strip is drawn again on every refresh: what is being typed stays.
+  const typing = el.querySelector("[data-plan-say]")?.value || "";
+  const focused = document.activeElement?.matches?.("[data-plan-say]");
   el.innerHTML = `
     <div class="subhead">This week</div>
     <div class="week-strip">${columns}</div>
+    ${weekPanelHtml(days, nowIso)}
+    ${coachUnavailable() ? "" : `<div class="plan-say">
+      <input type="text" class="plan-say-input" data-plan-say maxlength="500"
+        aria-label="Tell the coach what to change in your week"
+        placeholder="Tell the coach what to change - e.g. Friday instead of Saturday">
+      <button type="button" class="btn btn-quiet" data-plan-say-send>Ask</button></div>`}
     ${upcoming ? `<div class="note" style="margin-top:8px">Coming up: ${upcoming}</div>` : ""}
     ${heldNote ? `<div class="note">${esc(heldNote)}</div>` : ""}
     ${nothingPlanned ? `<div class="thin-data">Nothing is scheduled on the watch. Workouts
         in the Garmin calendar appear here after the next sync.</div>` : ""}`;
+  const say = el.querySelector("[data-plan-say]");
+  if (say && typing) { say.value = typing; if (focused) say.focus(); }
 }
 
 /* Minutes ABOVE THE EASY ZONES per week against the 80/20 SHARE — not against
@@ -1659,7 +1707,58 @@ document.addEventListener("input", ev => {
   if (btn) btn.disabled = area.value.trim() === saved.trim();
 });
 
+/* The week strip's day and the changes made there (`week.js`). */
+function onPlanClick(ev) {
+  const dayBtn = ev.target.closest("button[data-plan-day]");
+  if (dayBtn) {
+    const day = dayBtn.dataset.planDay;
+    Object.assign(planEdit, { day: planEdit.day === day ? null : day, proposal: null, error: null });
+    renderWeek();
+    return true;
+  }
+  if (ev.target.closest("button[data-plan-close]")) {
+    Object.assign(planEdit, { day: null, proposal: null, error: null });
+    renderWeek();
+    return true;
+  }
+  const entry = ev.target.closest("[data-plan-entry]");
+  const sid = entry ? Number(entry.dataset.planEntry) : null;
+  if (ev.target.closest("button[data-plan-remove]") && sid != null) {
+    fileChange([{ schedule_id: sid, action: "remove" }]);
+    return true;
+  }
+  if (ev.target.closest("button[data-plan-change]") && sid != null) {
+    fileChange([{ schedule_id: sid, action: "change",
+                  minutes: Number(entry.querySelector("[data-plan-minutes]")?.value),
+                  kind: entry.querySelector("[data-plan-kind]")?.value }]);
+    return true;
+  }
+  if (ev.target.closest("button[data-plan-say-send]")) {
+    const input = document.querySelector("[data-plan-say]");
+    const text = (input?.value || "").trim();
+    if (text) spawn({ question: text }, () => {}).then(() => { if (input) input.value = ""; });
+    return true;
+  }
+  const add = ev.target.closest("button[data-plan-add]");
+  if (add) {
+    const box = add.closest("[data-plan-panel]");
+    fileChange([{ action: "add", day: add.dataset.planAdd,
+                  kind: box?.querySelector("[data-plan-add-kind]")?.value || "easy",
+                  minutes: Number(box?.querySelector("[data-plan-add-minutes]")?.value) }]);
+    return true;
+  }
+  return false;
+}
+
+document.addEventListener("change", ev => {
+  const move = ev.target.closest?.("select[data-plan-move]");
+  if (move && move.value) {
+    fileChange([{ schedule_id: Number(move.dataset.planMove), action: "move", day: move.value }]);
+  }
+});
+
 document.addEventListener("click", ev => {
+  if (onPlanClick(ev)) return;
   if (ev.target.closest("button[data-signin]")) { openSignin(); return; }
   const said = ev.target.closest("button[data-check-in]");
   if (said) {
@@ -1828,7 +1927,12 @@ const app = mountApp({
 });
 // Follow-up questions on a card start a job: pull the state, start the poller.
 setCardContext({ onJobStart: async () => { await refresh().catch(() => {}); poller.start(); },
-                 onChanged: () => refresh().catch(() => {}) });
+                 onChanged: () => refresh().catch(() => {}),
+                 // The change filed in the week strip follows its own apply and undo.
+                 onProposal: (id, r) => {
+                   if (planEdit.proposal?.id !== id) return;
+                   planEdit.proposal = r?.undone ? null : { ...planEdit.proposal, ...(r || {}) };
+                 } });
 const showView = app.showView;
 const reload = app.reload;
 const refresh = app.fetchState;

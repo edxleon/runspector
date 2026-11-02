@@ -125,6 +125,44 @@ def _answer(card: dict) -> str:
                       *[str(b) for b in card.get("bullets") or []]])
 
 
+_WD = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _proposal_fails(srv: Server, card: dict, want: dict) -> list[str]:
+    """The athlete's change the card filed (roadmap 19), against what they
+    asked: `adds`/`takes_off` - weekdays that must get a session / lose an
+    entry; `minutes` - weekday -> length of the session put there; `kinds` -
+    weekday -> its kind; `within_days` - every day it touches lies this close
+    to today ("Saturday" is this Saturday)."""
+    import datetime as dt
+
+    pid = card.get("proposal")
+    p = srv.read("proposals", f"{pid}.json") if isinstance(pid, str) else None
+    if not p:
+        return [f"no proposal filed (card proposal: {pid!r})"]
+    fails = [] if p.get("change") is True else ["the proposal is not a change to the week"]
+    items = {_WD[dt.date.fromisoformat(it["day"]).weekday()]: it for it in p.get("items") or []}
+    gone = {_WD[dt.date.fromisoformat(r["day"]).weekday()] for r in p.get("replaces") or []}
+    fails += [f"no session put on {d} (put on: {sorted(items)})" for d in want.get("adds") or []
+              if d not in items]
+    fails += [f"nothing taken off {d} (taken off: {sorted(gone)})" for d in want.get("takes_off") or []
+              if d not in gone]
+    for d, m in (want.get("minutes") or {}).items():
+        got = round(items[d]["spec"]["estimated_seconds"] / 60) if d in items else None
+        if got is None or abs(got - int(m)) > 2:
+            fails.append(f"{d} holds {got} min, asked {m}")
+    for d, k in (want.get("kinds") or {}).items():
+        if (items.get(d) or {}).get("spec", {}).get("kind") != k:
+            fails.append(f"{d} is {(items.get(d) or {}).get('spec', {}).get('kind')}, asked {k}")
+    if "within_days" in want:
+        today = dt.date.today()
+        days = [dt.date.fromisoformat(x["day"]) for x in (p.get("items") or []) + (p.get("replaces") or [])]
+        far = [str(d) for d in days if (d - today).days >= int(want["within_days"])]
+        if far:
+            fails.append(f"days beyond the next {want['within_days']}: {far}")
+    return fails
+
+
 def run_story(story: dict, defaults: dict) -> dict:
     timeout = int(defaults.get("timeout_sec", 600))
     out = {"id": story["id"], "steps": [], "failures": []}
@@ -180,6 +218,8 @@ def run_story(story: dict, defaults: dict) -> dict:
                     want = None if step["check_in"] in (None, "none") else step["check_in"]
                     if card.get("check_in") != want:
                         fails.append(f"check-in offered: {card.get('check_in')}, wanted {want}")
+                if "proposal" in step:
+                    fails += _proposal_fails(srv, card, step["proposal"])
                 prompt = str((srv.read("jobs", f"{job.get('id')}.json") or {}).get("prompt") or "") \
                     if job.get("id") else ""
                 for sub in step.get("prompt_has") or []:

@@ -952,6 +952,21 @@ class Store:
                 "SELECT workout_id, name, kind, created_at, schedule_id, scheduled_day "
                 "FROM runcoach_workouts ORDER BY created_at DESC").fetchall()
 
+    def workout_specs(self) -> dict[int, dict]:
+        """Each workout this app uploaded, by id: the session it was built from
+        (`planning.to_json`). A row whose spec does not read is left out."""
+        with self._conn() as conn:
+            rows = conn.execute("SELECT workout_id, spec_json FROM runcoach_workouts").fetchall()
+        out = {}
+        for r in rows:
+            try:
+                spec = json.loads(r["spec_json"])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(spec, dict) and spec.get("kind") and spec.get("blocks") is not None:
+                out[int(r["workout_id"])] = spec
+        return out
+
     def workout_fallback(self, workout_id) -> int | None:
         """The easier option (`planning.easier_minutes`) stored with a workout
         this app uploaded, or `None` - a foreign workout, an easy run, or one

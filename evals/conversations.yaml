@@ -17,6 +17,8 @@
 #   check_in: the check-in the card offers (ill, pain, sore, stressed) or none
 #   prompt_has: substrings the coach's task must hold (the conversation it got)
 #   given_lacks: regexes the kept facts the coach was given must not match
+#   proposal: the athlete's change the card filed - adds / takes_off (weekdays), minutes and
+#             kinds (weekday -> value), within_days (the days it touches are this close)
 #   judge: a SELF-CONTAINED question about the answer (the judge sees nothing else)
 #
 # German umlauts are YAML escapes (\u00fc): the repo's text is ASCII
@@ -112,3 +114,33 @@ stories:
           friends this Saturday; now they ask what to do the day before the race. PASS if the
           answer is about the day before that Saturday race (e.g. rest or an easy short run). FAIL
           if it does not know which race or which day is meant.
+
+  - id: the-week-changed-in-words
+    steps:
+      - ask: "Statt Samstag lieber Freitag laufen, und den langen Lauf am Sonntag bitte nur 60 Minuten."
+        proposal:
+          takes_off: ["Sat", "Sun"]
+          adds: ["Fri", "Sun"]
+          minutes: {"Sun": 60}
+          within_days: 7
+        judge: >-
+          The athlete asked to run on Friday instead of Saturday and to keep Sunday's long run to
+          60 minutes. PASS if the answer says the change was filed as they asked and that it reaches
+          the watch only when they apply it. FAIL if it says something is already on the watch, or
+          moves days the athlete did not name.
+
+  - id: an-ambitious-change-is-kept-and-commented
+    steps:
+      - ask: "Mach aus dem Lauf am Samstag bitte VO2max-Intervalle, 45 Minuten."
+        proposal:
+          adds: ["Sat"]
+          takes_off: ["Sat"]
+          kinds: {"Sat": "vo2max"}
+          within_days: 7
+        judge: >-
+          The athlete asked to turn Saturday's run into VO2max intervals of 45 minutes, the day
+          before a long run on Sunday, in a week that already has two hard sessions. PASS if the
+          answer files that change as asked AND tells the athlete what speaks against it (for
+          example the long run the next day, the hard days too close together, or too many hard
+          sessions this week), leaving the decision to them. FAIL if it refuses, files something
+          other than what was asked, or does not mention any concern.

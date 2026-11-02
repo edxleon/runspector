@@ -501,35 +501,58 @@ export function renderProposal(p, opts = {}) {
   const warn = (p.warnings || []).map(w => `<div class="note proposal-warn">! ${esc(w)}</div>`).join("");
   const ids = Array.isArray(p.workouts) ? p.workouts : [];
   const week = Number(p.days) > 1;
+  // The athlete's own change to the week (roadmap 19): the coach's word on it
+  // stands next to the button, once - not again among the steps - and the
+  // buttons say what they do to the calendar.
+  const change = p.change === true;
+  const removing = change && !Number(p.days);
   // The way back exists as soon as anything is on Garmin, not only once all
   // of it is: a half-applied week used to offer "add the rest" and no undo.
   const undo = `<button type="button" class="btn btn-quiet" data-undo="${esc(p.id)}"
-               data-arm-label="Sure? It comes off the calendar"${can ? "" : " disabled"}
+               data-arm-label="Sure? ${change ? "Your calendar goes back" : "It comes off the calendar"}"${
+                 can ? "" : " disabled"}
                title="Take it off the Garmin calendar - the workout stays in your library">
-         Take off watch</button>`;
+         ${change ? "Undo the change" : "Take off watch"}</button>`;
+  const label = partial ? `Put the remaining ${esc(pending)} on watch`
+    : removing ? "Take it off the watch" : change ? "Put the change on watch" : "Put on watch";
   const button = applied
     ? `<span class="pill pill-ok">On Garmin${ids.length > 1 ? ` · ${ids.length} workouts`
         : ids.length ? ` · workout ${esc(ids[0])}` : ""}${p.day ? ` · ${esc(p.day)}` : ""}</span>
        ${undo}`
     : `<button type="button" class="btn btn-primary" data-apply="${esc(p.id)}"
-               data-arm-label="Sure? ${partial ? `${esc(pending)} more go` :
-                 week ? "The whole week goes" : "It goes"} on the watch"${can ? "" : " disabled"}
-               title="Upload to Garmin, schedule ${week ? `${esc(p.days)} sessions from` : "for"} ${
-                 esc(p.day || "the day")}, push to the watch">
-         ${partial ? `Put the remaining ${esc(pending)} on watch` : "Put on watch"}</button>${
+               data-arm-label="Sure? ${partial ? `${esc(pending)} more go` : change
+                 ? "Your Garmin calendar changes" : week ? "The whole week goes" : "It goes"}${
+                 change && !partial ? "" : " on the watch"}"${can ? "" : " disabled"}
+               title="${change ? "Change your Garmin calendar as listed" : `Upload to Garmin, schedule ${
+                 week ? `${esc(p.days)} sessions from` : "for"} ${esc(p.day || "the day")}, push to the watch`}">
+         ${label}</button>${
            partial && ids.length ? undo : ""}${
            can ? "" : `<span class="note">${
              opts.applyHint ? esc(opts.applyHint) : "needs a Garmin login"}</span>`}`;
   // The safety net, next to the button that writes: what changes, and that
   // it can be taken back. Said only while there is something left to write.
-  const net = applied ? "" : `<div class="note proposal-net">Only what is listed above goes to
+  const net = applied ? "" : change
+    ? `<div class="note proposal-net">Only what is listed above changes on your Garmin calendar.
+       "Undo the change" puts it back as it was; workouts stay in your Garmin library.</div>`
+    : `<div class="note proposal-net">Only what is listed above goes to
     Garmin - nothing else on your calendar changes. "Take off watch" removes it again; the
     workout stays in your Garmin library.</div>`;
+  const notes = (Array.isArray(p.notes) ? p.notes : []).filter(Boolean);
+  const coach = !change ? ""
+    : notes.length
+      ? `<div class="proposal-coach"><div class="subhead">The coach</div>${
+          notes.map(n => `<p class="note">${esc(n)}</p>`).join("")}<p class="note">It is your
+          call - the change stands as you made it.</p></div>`
+      : `<div class="proposal-coach"><p class="note">The coach has nothing against it.</p></div>`;
+  const steps = change
+    ? String(p.preview || "").split("\n").filter(l => !l.startsWith("  coach: ")).join("\n")
+    : String(p.preview || "");
   return `<div class="card-proposal" data-proposal="${esc(p.id)}">
-    <div class="subhead">${week ? `Proposed week · ${esc(p.days)} sessions` : "Proposed session"}${
-      p.day ? ` · ${esc(p.day)}` : ""}${
+    <div class="subhead">${change ? "Your change" : week ? `Proposed week · ${esc(p.days)} sessions`
+      : "Proposed session"}${p.day && !change ? ` · ${esc(p.day)}` : ""}${
       partial ? ` · ${esc(Number(p.days || 1) - pending)} of ${esc(p.days)} on Garmin` : ""}</div>
-    <pre class="proposal-steps">${esc(p.preview || "")}</pre>
+    <pre class="proposal-steps">${esc(steps)}</pre>
+    ${coach}
     ${warn}
     <div class="btn-row">${button}</div>
     ${net}
@@ -543,6 +566,7 @@ async function undoProposal(id, btn) {
   try {
     const r = await apiPost("/api/plan/undo", { proposal_id: id }, APPLY_TIMEOUT_MS);
     toast(String(r?.result || "Taken off the calendar."), { ms: 8000 });
+    context.onProposal?.(id, { undone: true });
   } catch (e) {
     if (/timed out|timeout/i.test(String(e.message || ""))) {
       toast("Still talking to Garmin - refresh in a moment to see what changed.",
@@ -570,6 +594,7 @@ async function applyProposal(id, btn) {
     // A package that stopped half way is not a success story: the toast says
     // so, and the card keeps the button for the rest.
     toast(String(r?.result || "On Garmin."), { ms: 8000, warn: Number(r?.pending || 0) > 0 });
+    context.onProposal?.(id, r?.proposal);
   } catch (e) {
     // A TIMEOUT is not a failure: the server may still be writing sessions to
     // Garmin. Re-enabling the button there invites a second apply against a

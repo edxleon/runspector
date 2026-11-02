@@ -136,6 +136,26 @@ def resolve_home(demo: bool) -> None:
         os.environ["RUNSPECTOR_HOME"] = str(home / "demo")
 
 
+def _proposal_view(p: dict, pid: str | None = None) -> dict:
+    """A proposal as the page shows it. `.get` throughout: a proposal file
+    that parses but is missing a field must cost its own card, never the
+    whole page - one KeyError turns every /api/state into a 500."""
+    from .. import plan
+
+    view = {"id": p.get("id") or pid, "day": p.get("day") or "",
+            "days": p.get("days", 1), "status": p.get("status") or "open",
+            "preview": p.get("preview") or "",
+            "workouts": plan.workouts_of(p),
+            "pending": plan.pending_of(p),
+            "warnings": list(p.get("warnings") or [])[:5]}
+    if p.get("change") is True:
+        # The athlete's own change: the coach's word on it, kept apart from
+        # the steps so the page can put it next to the button.
+        view["change"] = True
+        view["notes"] = [str(n)[:400] for n in (p.get("notes") or [])[:12]]
+    return view
+
+
 class App:
     """Process-wide state. One instance per `serve()`."""
 
@@ -292,14 +312,23 @@ class App:
             # `.get` throughout: a proposal file that parses but is missing a
             # field must cost its own card, never the whole page. One KeyError
             # here turns every /api/state into a 500 and the dashboard is gone.
-            c["proposal"] = ({"id": p.get("id") or pid, "day": p.get("day") or "",
-                              "days": p.get("days", 1), "status": p.get("status") or "open",
-                              "preview": p.get("preview") or "",
-                              "workouts": plan.workouts_of(p),
-                              "pending": plan.pending_of(p),
-                              "warnings": list(p.get("warnings") or [])[:5]}
-                             if p else None)
+            c["proposal"] = _proposal_view(p, pid) if p else None
         return out
+
+    def change_week(self, op: dict) -> tuple[dict, int]:
+        """The athlete's change to the planned week, from the week strip
+        (roadmap 19): filed as a proposal with the coach's notes on it. Nothing
+        reaches Garmin before the same "Put on watch" every proposal has."""
+        from .. import plan
+
+        edits = op.get("edits")
+        if not isinstance(edits, list):
+            return {"error": "edits must be a list of changes"}, 400
+        try:
+            p = plan.propose_change(self.store, edits, today=paths.today())
+        except ValueError as exc:
+            return {"error": str(exc)}, 400
+        return {"proposal": _proposal_view(p)}, 200
 
     def apply_proposal(self, op: dict) -> tuple[dict, int]:
         """The click on the card. The same `plan.apply` the MCP tool calls -
@@ -357,7 +386,10 @@ class App:
         current = plan.read(pid, self.store)
         if current is None:
             return {"error": "unknown or expired proposal"}, 404
-        if not any(it.get("schedule_id") for it in current["items"]):
+        # What it placed, or what it took off - a change that only took a
+        # session off has nothing placed and is undone all the same.
+        if not any(it.get("schedule_id") for it in current["items"]) and not any(
+                r.get("removed") and not r.get("restored") for r in current.get("replaces") or []):
             return {"error": "nothing of this proposal is on the calendar"}, 409
         try:
             client = garmin.login()
@@ -868,7 +900,14 @@ This card: the headline IS the direct answer, in one sentence. AT MOST 3 bullets
 the single biggest lever first, with the number from the tools that shows it and
 what it means for their goal; then what it means for this week. If a session or a
 week follows from it and they asked for one, file it with the tool and add its
-"proposal" - never describe a plan in prose as if it were filed."""
+"proposal" - never describe a plan in prose as if it were filed.
+If they ask to change their planned week - move a session, make one shorter or
+longer or of another kind, take one out, add one - call propose_change with
+exactly those changes: the entry by its schedule id and the day by its date, both
+from get_training_readiness's calendar ("Saturday" is the Saturday listed there).
+The athlete decides: make the change even where you would not, and say in the
+card what its coach: lines say; a better change goes in the verdict as a
+suggestion, never into the proposal. Add its "proposal"."""
 
 
 def _mtime_utc(path) -> str | None:
@@ -1246,6 +1285,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(*self.app.undo_proposal(op))
         if route == "/api/plan/apply":
             return self._json(*self.app.apply_proposal(op))
+        if route == "/api/week/change":
+            return self._json(*self.app.change_week(op))
         m = re.match(r"^/api/jobs/(j-[0-9a-z-]+)/cancel$", route)
         if m and jobs.read_job(m.group(1)):
             jobs.request_cancel(m.group(1))

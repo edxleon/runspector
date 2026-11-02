@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1534 tests, 136 frontend tests and that gate on three operating systems and two Python versions, with every
+1551 tests, 143 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -96,10 +96,10 @@ since everything except the coach cards works without it.
 
 ### Garmin MCP server for Claude Code and Claude Desktop
 
-The same data, and the same rules, as an MCP server with 17 tools - among them today's readiness verdict, recovery,
+The same data, and the same rules, as an MCP server with 18 tools - among them today's readiness verdict, recovery,
 training load, recent runs, intensity distribution, the VO2max history, what the coach has learned about
-you, a Garmin sync, a check-in when you say you are ill or hurt - and propose, apply and undo for a
-workout on your watch.
+you, a Garmin sync, a check-in when you say you are ill or hurt - and propose, change, apply and undo
+for the workouts on your watch.
 
 ```bash
 claude mcp add runspector -- runspector mcp
@@ -294,7 +294,7 @@ Delete `~/.runspector` (the app's footer shows the folder) and run
 
 | Tab | What it answers |
 |---|---|
-| **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today and, on a hard day, *which* hard session (VO2max intervals, threshold reps, or the steady block Garmin measures VO2max from), Garmin's own Training Readiness beside it on watches that have one (its opinion - the call is the app's), four buttons for what the watch cannot see - ill, pain, sore legs, stressed - that change the call (ill or pain rest the day, and as many easy days follow as it lasted), your VO2max with the days since it last really changed, this week planned vs. done, last night's sleep, your zone bounds with their origin. Coming back to the page after a while syncs first |
+| **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today and, on a hard day, *which* hard session (VO2max intervals, threshold reps, or the steady block Garmin measures VO2max from), Garmin's own Training Readiness beside it on watches that have one (its opinion - the call is the app's), four buttons for what the watch cannot see - ill, pain, sore legs, stressed - that change the call (ill or pain rest the day, and as many easy days follow as it lasted), your VO2max with the days since it last really changed, this week planned vs. done - tap a day to see what a session is (length, distance, pace, its steps) and change it: move it, make it shorter, longer or another kind, take it out, add a run, or tell the coach in your own words; the coach says what it thinks of the change, you decide, and it reaches the watch with "Put on watch" and comes off again with an undo -, last night's sleep, your zone bounds with their origin. Coming back to the page after a while syncs first |
 | **Runs** | Every run with its intensity band, real interval structure (`5×4′`, not "5 minutes"), zones, weather, performance condition — and an *Analyze this run* button |
 | **Trend** | VO2max as honest steps (and whether a measurement is due) with your body weight beside it - VO2max is per kilogram, so the page says how much of a change the weight alone explains -, lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR and monotony (how alike the last seven days were - an even, heavy week holds the next one), and Garmin's own load focus (its 4-week load per band against its target range) as a second opinion |
 | **Coach** | Ask the coach anything in your own words (*what am I doing wrong?*) - a short card, the biggest lever first. One-tap analyses by Claude as short cards that remember the previous card of their kind, accept your 👍/👎 and can be deleted. A card is a conversation: ask on under it, and every answer is
@@ -311,7 +311,7 @@ flowchart TD
     DB --> L[logic.py<br/>readiness · decision<br/>intervals · bands]
     L --> SNAP[snapshot.py]
     SNAP --> WEB[web app<br/>127.0.0.1:8765]
-    L --> MCP[MCP server<br/>17 tools<br/>13 read-only · sync · check-in · apply · undo]
+    L --> MCP[MCP server<br/>18 tools<br/>14 read-only · sync · check-in · apply · undo]
     WEB -- "spawn job" --> A["claude --print<br/>(your Claude sign-in)"]
     A -- "only mcp__runspector__*" --> MCP
     A -- "JSON card" --> WEB

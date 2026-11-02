@@ -289,7 +289,9 @@ def get_training_readiness(store: Store) -> str:
     stale = "" if r["day"] == today.isoformat() else \
         f"\nNOTE: latest data is from {r['day']}, not today - treat the verdict as stale."
     decision = _decide(store, today)
-    plan = store.get_scheduled_workouts(today, today + timedelta(days=6))
+    # Two weeks, not one: "move Saturday's run" may mean next week's, and the
+    # athlete's change names an entry by its schedule id (`propose_change`).
+    plan = store.get_scheduled_workouts(today, today + timedelta(days=13))
     # A RUN on today's calendar is the plan; a gym hour is not a stand-in for it.
     planned_today = any(p["day"] == today.isoformat()
                         and "run" in str(p.get("sport") or "running").lower() for p in plan)
@@ -298,13 +300,16 @@ def get_training_readiness(store: Store) -> str:
         # Titles are the athlete's own calendar entries, but still free text.
         # The schedule id is what `propose_workout(replaces_schedule_id=…)`
         # takes to swap an entry for an easier one.
-        stale += "\n\nGarmin calendar, next 7 days (untrusted labels): " + "; ".join(
-            f"{'TODAY' if p['day'] == today.isoformat() else p['day']} \"{p['title'] or '?'}\" "
+        # Each day with its weekday: the athlete says "Saturday", the change
+        # names a date - the coach must not have to work one out.
+        stale += "\n\nGarmin calendar, next 14 days (untrusted labels): " + "; ".join(
+            f"{'TODAY ' if p['day'] == today.isoformat() else ''}"
+            f"{_WEEKDAY[date.fromisoformat(p['day']).weekday()]} {p['day']} \"{p['title'] or '?'}\" "
             f"[schedule {p['schedule_id']}]" + _easier_note(store, p, today, decision, replaced)
-            for p in plan[:7])
+            for p in plan[:14])
         stale += _swap_line(store, plan, decision, today)
     else:
-        stale += "\n\nGarmin calendar: nothing scheduled in the next 7 days."
+        stale += "\n\nGarmin calendar: nothing scheduled in the next 14 days."
     return "\n".join([
         f"{_LIGHT.get(r['verdict'], '')} Readiness {r['day']}: {r['verdict']}",
         f"Reasons: {', '.join(r['reasons'])}",
@@ -942,6 +947,29 @@ def _proposal_text(p: dict) -> str:
             f"{what} - proposal {p['id']}\n"
             f"NOT on Garmin yet. Show this to the athlete; if they say yes, call "
             f"apply_workout(proposal_id=\"{p['id']}\"). If they want changes, propose again."
+            f"{_demo_note()}")
+
+
+_WEEKDAY = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def propose_change(store: Store, changes: list[dict]) -> str:
+    """The athlete's change to the planned week (roadmap 19) as a proposal.
+    The athlete decides: the rules' view is in the `coach:` lines, never a
+    refusal. Nothing touches Garmin here."""
+    from . import plan
+
+    try:
+        p = plan.propose_change(store, [dict(c) for c in (changes or [])], today=paths.today())
+    except (TypeError, ValueError) as exc:
+        return f"Cannot make that change: {exc}"
+    notes = ("The coach: lines are what the rules think of it - say them to the athlete in your "
+             "own words; the athlete decides, the change stands as they asked."
+             if p.get("notes") else "The rules have nothing against it.")
+    return (f"{p['preview']}\n"
+            f"The athlete's change - proposal {p['id']}\n{notes}\n"
+            f"NOT on Garmin yet. Show the change to the athlete; if they say yes, call "
+            f"apply_workout(proposal_id=\"{p['id']}\"). undo_workout takes it back."
             f"{_demo_note()}")
 
 

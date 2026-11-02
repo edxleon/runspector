@@ -127,6 +127,27 @@
 /* Planned, but held back by what the athlete said (ill, pain ...). */
 .w-held { background: var(--surface); border-style: dashed; border-color: var(--warn); color: var(--muted); }
 .w-today { box-shadow: 0 0 0 2px var(--accent); }
+/* A day is a button: a tap opens it below the strip (roadmap 19). */
+button.w-day { font: inherit; font-size: 11px; color: inherit; text-align: left; cursor: pointer;
+               width: 100%; }
+button.w-day:hover { border-color: var(--accent); }
+button.w-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.w-open { border-color: var(--accent); border-width: 2px; }
+.plan-day { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line);
+            border-radius: 10px; background: var(--surface); display: grid; gap: 8px; }
+.plan-head { display: flex; justify-content: space-between; align-items: baseline; }
+.plan-entry { display: grid; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+.plan-steps { margin: 2px 0 0 18px; padding: 0; font-size: 12.5px; }
+.plan-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; }
+.plan-actions select, .plan-actions input { font: inherit; padding: 4px 6px; border-radius: 6px;
+            border: 1px solid var(--line); background: var(--surface2); color: inherit; }
+.plan-actions input[type=number] { width: 4.5em; }
+.proposal-coach { display: grid; gap: 4px; margin: 6px 0; padding: 8px 10px; border-radius: 8px;
+                  border-left: 3px solid var(--warn); background: var(--surface2); }
+.proposal-coach p { margin: 0; }
+.plan-say { display: flex; gap: 8px; margin-top: 10px; }
+.plan-say-input { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border-radius: 6px;
+                  border: 1px solid var(--line); background: var(--surface2); color: inherit; }
 /* Minutes above easy: bars below the target line subdued, the line dashed.
    ONE bar, TWO numbers: the pale body is everything above the easy zones
    (Z3+Z4+Z5), the solid foot inside it is the part above threshold (Z4+Z5).

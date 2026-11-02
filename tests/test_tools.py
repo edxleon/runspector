@@ -42,7 +42,9 @@ READ_ONLY_TOOLS = {
     "get_coaching_reference",
     # what the app has learned about the athlete (facts.py)
     "get_athlete_profile",
-    "propose_workout", "propose_week"}
+    "propose_workout", "propose_week",
+    # the athlete's change to the planned week (roadmap 19): files, writes nothing
+    "propose_change"}
 
 EXPECTED_MCP_TOOLS = {
     "get_training_readiness", "get_recovery_summary", "get_daily_metrics", "get_trend",
@@ -53,7 +55,7 @@ EXPECTED_MCP_TOOLS = {
     # what the app has learned about the athlete (facts.py)
     "get_athlete_profile",
     # the write path: propose (local) and, after a human's yes, apply (Garmin)
-    "propose_workout", "propose_week", "apply_workout", "undo_workout",
+    "propose_workout", "propose_week", "propose_change", "apply_workout", "undo_workout",
     # the athlete's own word about themselves (local, changes the day's decision)
     "check_in"}
 
@@ -162,7 +164,7 @@ def test_training_readiness_render(store, today):
     assert "resting HR 45 bpm (baseline 44.0)" in out
     assert "status PRODUCTIVE" in out and "last hard workout 2 day(s) ago" in out
     assert "NOTE" not in out
-    assert out.endswith("Garmin calendar: nothing scheduled in the next 7 days.")
+    assert out.endswith("Garmin calendar: nothing scheduled in the next 14 days.")
 
 
 def test_training_readiness_lists_the_garmin_calendar(store, today):
@@ -170,12 +172,16 @@ def test_training_readiness_lists_the_garmin_calendar(store, today):
     store.replace_scheduled_workouts(
         [ScheduledWorkout(1, today, title="Threshold 3x10", sport="running"),
          ScheduledWorkout(2, today + timedelta(days=6), title=None),
-         ScheduledWorkout(3, today + timedelta(days=7), title="beyond the 7 days"),
+         ScheduledWorkout(5, today + timedelta(days=13), title="next week too"),
+         ScheduledWorkout(3, today + timedelta(days=14), title="beyond the 14 days"),
          ScheduledWorkout(4, today - timedelta(days=1), title="yesterday")],
         today - timedelta(days=7), today + timedelta(days=14))
     out = tools.get_training_readiness(store)
-    assert ('Garmin calendar, next 7 days (untrusted labels): TODAY "Threshold 3x10" [schedule 1]; '
-            '2026-06-16 "?" [schedule 2]') in out
+    # Each day with its weekday: the athlete says "Tuesday", a change names a date.
+    assert ('Garmin calendar, next 14 days (untrusted labels): TODAY Wed 2026-06-10 '
+            '"Threshold 3x10" [schedule 1]; Tue 2026-06-16 "?" [schedule 2]; '
+            'Tue 2026-06-23 "next week too" [schedule 5]') in out
+    assert "beyond" not in out and "yesterday" not in out
     assert "beyond" not in out and "yesterday" not in out
 
 
@@ -752,7 +758,7 @@ def test_the_readiness_tool_prints_the_schedule_id_the_swap_needs(store, today):
     store.replace_scheduled_workouts([ScheduledWorkout(777, today, workout_id=4242,
                                                        title="VO2max 5x3", sport="running")],
                                      today, today)
-    assert 'TODAY "VO2max 5x3" [schedule 777]' in tools.get_training_readiness(store)
+    assert 'TODAY Wed 2026-06-10 "VO2max 5x3" [schedule 777]' in tools.get_training_readiness(store)
 
 
 def test_a_swap_proposal_unschedules_the_old_entry_when_applied(store, today, monkeypatch):

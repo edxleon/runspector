@@ -617,7 +617,7 @@ cases:
 
       The app's decision for today: HARD - "Today is the day for the hard session - the week has its minutes above easy, but all of them are in zone 3 and none above threshold. What is missing is quality, not volume." (rule: GO, share reached but no quality; this week 40 of 30 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. Which hard session: VO2max intervals - no Z5 stimulus in the last 7 days; reps of 3-5 min in zone 5 are what moves VO2max.
 
-      Garmin calendar: nothing scheduled in the next 7 days.
+      Garmin calendar: nothing scheduled in the next 14 days.
 
       === get_training_load ===
       Training load 2026-05-21 .. 2026-06-17
@@ -1175,7 +1175,7 @@ cases:
 
       The app's decision for today: EASY - "Easy today - the last hard session was today; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 43 of 46 min above the easy zones, of which 43 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar, next 7 days (untrusted labels): TODAY "long 87 min" [schedule 7000016]
+      Garmin calendar, next 14 days (untrusted labels): TODAY Sun 2026-03-29 "long 87 min" [schedule 7000016]
 
       === propose_week ===
       Tue 2026-03-31: VO2max 4x4 min  (vo2max; ~9.1 km, ~53 min)
@@ -1250,7 +1250,7 @@ cases:
 
       The app's decision for today: EASY - "Easy today - the last hard session was today; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 46 of 50 min above the easy zones, of which 46 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar, next 7 days (untrusted labels): TODAY "long 94 min" [schedule 7000024]
+      Garmin calendar, next 14 days (untrusted labels): TODAY Sun 2026-04-12 "long 94 min" [schedule 7000024]
 
       === propose_week ===
       Tue 2026-04-14: VO2max 3x4 min  (vo2max; ~6.1 km, ~35 min)
@@ -1332,7 +1332,7 @@ cases:
 
       The app's decision for today: EASY - "Easy only today - the week's hard minutes stay open and are made up once the light is green again." (rule: verdict EASY; this week 0 of 12 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar, next 7 days (untrusted labels): TODAY "easy 42 min" [schedule 7000037]; 2026-05-07 "easy 42 min" [schedule 7000038]; 2026-05-09 "easy 42 min" [schedule 7000039]; 2026-05-10 "easy 42 min" [schedule 7000040]
+      Garmin calendar, next 14 days (untrusted labels): TODAY Tue 2026-05-05 "easy 42 min" [schedule 7000037]; Thu 2026-05-07 "easy 42 min" [schedule 7000038]; Sat 2026-05-09 "easy 42 min" [schedule 7000039]; Sun 2026-05-10 "easy 42 min" [schedule 7000040]
     expect:
       judge_question: >
         Context: a runner did their first run after three weeks without running
@@ -1372,7 +1372,7 @@ cases:
 
       The app's decision for today: EASY - "Easy only today - the light says take it easy; the week's hard share is already reached anyway." (rule: verdict EASY; this week 76 of 57 min above the easy zones, of which 76 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar, next 7 days (untrusted labels): TODAY "long 83 min" [schedule 7000004]
+      Garmin calendar, next 14 days (untrusted labels): TODAY Sun 2026-03-08 "long 83 min" [schedule 7000004]
 
       === propose_week ===
       Tue 2026-03-10: VO2max 4x4 min  (vo2max; ~7.4 km, ~42 min)
@@ -1448,7 +1448,7 @@ cases:
 
       The app's decision for today: EASY - "Easy today - the last hard session was yesterday; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 22 of 34 min above the easy zones, of which 22 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar: nothing scheduled in the next 7 days.
+      Garmin calendar: nothing scheduled in the next 14 days.
 
       === propose_week ===
       Tue 2026-04-07: VO2max 5x4 min  (vo2max; ~8.9 km, ~50 min)
@@ -1514,7 +1514,7 @@ cases:
 
       The app's decision for today: HARD - "Today is the day for the hard session - the week has its minutes above easy, but all of them are in zone 3 and none above threshold. What is missing is quality, not volume." (rule: GO, share reached but no quality; this week 40 of 30 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. Which hard session: VO2max intervals - no Z5 stimulus in the last 7 days; reps of 3-5 min in zone 5 are what moves VO2max.
 
-      Garmin calendar: nothing scheduled in the next 7 days.
+      Garmin calendar: nothing scheduled in the next 14 days.
 
       === get_training_load ===
       Training load 2026-05-21 .. 2026-06-17
@@ -1579,7 +1579,7 @@ cases:
 
       The app's decision for today: HARD - "Today is the day for the hard session - the week has its minutes above easy, but all of them are in zone 3 and none above threshold. What is missing is quality, not volume." (rule: GO, share reached but no quality; this week 40 of 35 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. Which hard session: VO2max intervals - no Z5 stimulus in the last 7 days; reps of 3-5 min in zone 5 are what moves VO2max.
 
-      Garmin calendar: nothing scheduled in the next 7 days.
+      Garmin calendar: nothing scheduled in the next 14 days.
 
       === get_athlete_profile ===
       What the app has learned about this athlete from their own data (context - today's numbers and the decision come from the other tools):
@@ -1643,7 +1643,7 @@ cases:
 
       The app's decision for today: EASY - "Easy today - the last hard session was yesterday; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 40 of 30 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar: nothing scheduled in the next 7 days.
+      Garmin calendar: nothing scheduled in the next 14 days.
 
       === get_training_load ===
       Training load 2026-05-21 .. 2026-06-17
@@ -1709,7 +1709,7 @@ cases:
 
       The app's decision for today: HARD - "Today is the day for the hard session - the week has its minutes above easy, but all of them are in zone 3 and none above threshold. What is missing is quality, not volume." (rule: GO, share reached but no quality; this week 40 of 30 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. The calendar has a run for today (below): that is the plan.
 
-      Garmin calendar, next 7 days (untrusted labels): TODAY "VO2max 5x4 min" [schedule 8801] (if too much today: 48 min easy, the plan's own easier option)
+      Garmin calendar, next 14 days (untrusted labels): TODAY Wed 2026-06-17 "VO2max 5x4 min" [schedule 8801] (if too much today: 48 min easy, the plan's own easier option)
     expect:
       judge_question: >
         Context: today's calendar holds a VO2max 5x4 session that this app planned,

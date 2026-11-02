@@ -49,6 +49,7 @@ TOOL_LABELS = {
     "sync_garmin": "a sync with Garmin",
     "propose_workout": "a draft session (not on the watch)",
     "propose_week": "a draft week (not on the watch)",
+    "propose_change": "a draft change to the week (not on the watch)",
     "apply_workout": "a session put on your watch",
     "undo_workout": "a session taken off your watch",
     "check_in": "what you said about how you are",
@@ -56,7 +57,7 @@ TOOL_LABELS = {
 
 #: The tools that change something rather than read. The page says "did",
 #: not "read", for these.
-CHANGING_TOOLS = frozenset({"sync_garmin", "propose_workout", "propose_week",
+CHANGING_TOOLS = frozenset({"sync_garmin", "propose_workout", "propose_week", "propose_change",
                             "apply_workout", "undo_workout", "check_in"})
 
 #: Per tool result, what the record keeps. A week's analysis is a few KB; the
@@ -195,7 +196,7 @@ def own_words(out: str) -> str:
 SOURCE_KINDS = ("measured", "you", "derived")
 _MARK = re.compile(r"^\s*\[\s*(measured|you|derived)\s*(?:[:\-–—]\s*([^\]]{0,160}))?\]\s*", re.I)
 _TOOL_IN_REF = re.compile(r"\b(get_[a-z0-9_]+|analyze_workout|sync_garmin|propose_week|"
-                          r"propose_workout|check_in)\b")
+                          r"propose_workout|propose_change|check_in)\b")
 
 
 def split_marks(bullets: list) -> tuple[list, list]:

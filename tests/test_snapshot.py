@@ -317,12 +317,13 @@ def test_build_plan_maps_planned_and_done_onto_weekdays():
     assert p["week_start"] == "2026-09-07" and p["today"] == "2026-09-09"
     assert [t["day"] for t in p["days"]] == [f"2026-09-{d:02d}" for d in range(7, 14)]
     mon = p["days"][0]
-    assert mon["planned"] == [{"title": "Threshold 35", "sport": "running", "workout_id": 1}]
+    assert mon["planned"] == [{"title": "Threshold 35", "sport": "running", "workout_id": 1,
+                               "schedule_id": None, "own": False, "detail": None}]
     assert mon["done"][0]["band"] == "hard" and mon["done"][0]["training_load"] == 265
     assert p["days"][1]["done"][0]["type"] == "strength_training"
     assert p["days"][4]["planned"][0]["title"] == "Easy 8k" and p["days"][4]["done"] == []
     assert p["upcoming"] == [{"day": "2026-09-15", "title": "Long Run", "sport": "running",
-                              "workout_id": 3}]
+                              "workout_id": 3, "schedule_id": None, "own": False, "detail": None}]
     empty = snapshot.build_plan([], [], today)
     assert len(empty["days"]) == 7 and empty["upcoming"] == []
     assert snapshot.build_plan(None, None, today)["days"][0] == {"day": "2026-09-07", "planned": [],

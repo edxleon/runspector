@@ -174,7 +174,11 @@ def read(proposal_id: str, store: Store | None = None) -> dict | None:
     # A file that parses but is not a proposal is not a proposal. `_finish`
     # used to be able to write a stub, and one of those reaching the page made
     # every `/api/state` a 500 - the whole dashboard, not just that card.
-    if not isinstance(d, dict) or not isinstance(d.get("items"), list) or not d["items"]:
+    if not isinstance(d, dict) or not isinstance(d.get("items"), list):
+        return None
+    # Empty only as the athlete's change that takes a session off.
+    if not d["items"] and not (d.get("change") is True and isinstance(d.get("replaces"), list)
+                               and d["replaces"]):
         return None
     return _reconcile(store, d) if store is not None else d
 
@@ -218,35 +222,46 @@ def _item(day: date, spec: planning.SessionSpec) -> dict:
 
 
 def _file(items: list[dict], *, replaces: list[dict], assumptions: list[str], zones: dict,
-          calendar: list[str] | None = None) -> dict:
+          calendar: list[str] | None = None, notes: list[str] | None = None) -> dict:
     """Write a proposal - one session or a week's package - and return it.
     `items` is the truth; `day`/`days`/`preview` at the top summarise it for
-    the card."""
+    the card. `notes` makes it the athlete's change to the week
+    (`propose_change`): every session dated, the coach's word on it kept with
+    it - and it may hold nothing to upload, only a session to take off."""
     # A package names each session's day: the athlete is asked for ONE yes to
     # the whole week, and "4 sessions, 2026-09-22 onwards" is not a week anyone
     # can agree to. A single session carries its day in "planned for ...".
-    if len(items) > 1:
-        preview = "\n\n".join(
-            f"{WEEKDAYS[date.fromisoformat(it['day']).weekday()]} {it['day']}: {it['preview']}"
-            for it in items)
+    def dated(day: str) -> str:
+        return f"{WEEKDAYS[date.fromisoformat(day).weekday()]} {day}"
+
+    if len(items) > 1 or (items and notes is not None):
+        preview = "\n\n".join(f"{dated(it['day'])}: {it['preview']}" for it in items)
     else:
-        preview = items[0]["preview"]
-    if replaces:
+        preview = items[0]["preview"] if items else ""
+    if replaces and items:
         preview += "\n\nreplaces on the calendar: " + "; ".join(
             f"{r['day']} \"{r['title'] or '?'}\" (schedule {r['schedule_id']})" for r in replaces)
+    elif replaces:
+        preview = "Takes off the calendar: " + "; ".join(
+            f"{dated(r['day'])} \"{r['title'] or '?'}\" (schedule {r['schedule_id']})"
+            for r in replaces)
     if calendar:
         preview += "\n" + "\n".join(f"  calendar: {c}" for c in calendar)
     if assumptions:
         preview += "\n" + "\n".join(f"  assumption: {a}" for a in assumptions)
+    if notes:
+        preview += "\n" + "\n".join(f"  coach: {n}" for n in notes)
     proposal = {
         "id": new_id(),
         "created": _now().isoformat(timespec="seconds"),
-        "day": items[0]["day"], "days": len(items),
+        "day": items[0]["day"] if items else replaces[0]["day"], "days": len(items),
         "items": items, "replaces": replaces,
         "preview": preview,
         "zones_as_of": zones.get("as_of_day"),
         "status": "open", "applied_at": None, "warnings": [],
     }
+    if notes is not None:
+        proposal["change"], proposal["notes"] = True, list(notes)
     cleanup()
     paths.write_json_atomic(_path(proposal["id"]), proposal)
     return proposal
@@ -282,7 +297,10 @@ def _reconcile(store: Store, p: dict) -> dict:
         # would hand the stale one back from the file.
         if it.get("workout_id") in scheduled:
             it["schedule_id"] = scheduled[it["workout_id"]]
-    if any(it.get("workout_id") for it in p["items"]):
+    # A change that only takes a session off has nothing to upload: done
+    # once the entry is off the calendar.
+    if any(it.get("workout_id") for it in p["items"]) or (
+            not p["items"] and any(r.get("removed") for r in p.get("replaces") or [])):
         # "applied" = this proposal has touched Garmin, which is what decides
         # whether a second apply may upload. Whether every session also got a
         # day is `pending_of`, and the card reads both.
@@ -836,6 +854,261 @@ def _session_cap(store: Store, today: date) -> tuple[int | None, str | None]:
     cap = max(SESSION_CAP_FLOOR_MIN, int(round(minutes * SESSION_GROWTH)))
     return cap, (f"no session over ~{cap} min: {int(SESSION_GROWTH * 100)} % of your longest "
                  f"run in four weeks ({minutes} min)")
+
+
+# ── the athlete's change to the planned week (roadmap 19) ────────────────────
+
+#: What the athlete can do to the planned week.
+CHANGE_ACTIONS = ("move", "change", "remove", "add")
+#: Changes in one proposal: a week of them, and an end for a model's list.
+MAX_CHANGES = 7
+#: The words for how the plan sized a week (`_week_plan`'s mode).
+_MODE_WORDS = {"step": "your recent weeks plus 10 %", "hold": "your recent weeks, held",
+               "unload": "a lighter week for your load ratio", "down": "this cycle's lighter week",
+               "return": "a return week after your pause", "default": "the built-in week"}
+
+
+def _when(day: date) -> str:
+    return f"{WEEKDAYS[day.weekday()]} {day.day} {day:%b}"
+
+
+def _change_day(value, *, today: date) -> date:
+    try:
+        day = date.fromisoformat(str(value))
+    except ValueError:
+        raise ValueError(f"day must be YYYY-MM-DD, got {value!r}") from None
+    _check_day(day, today=today)
+    return day
+
+
+def _change_minutes(value) -> int:
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"minutes must be a whole number, got {value!r}") from None
+    if not 10 <= minutes <= 300:
+        raise ValueError("minutes must be between 10 and 300")
+    return minutes
+
+
+def propose_change(store: Store, edits: list[dict], *, today: date | None = None) -> dict:
+    """The athlete's change to the planned week, as ONE proposal: what it puts
+    on the calendar (`items`), what it takes off (`replaces`), and what the
+    coach thinks of it (`notes`). Applied after one yes and undone like every
+    other proposal (`apply`, `undo`).
+
+    Each edit is `{"action": "move", "schedule_id", "day"}`, `{"action":
+    "change", "schedule_id", "kind"?, "minutes"?, "day"?}`, `{"action":
+    "remove", "schedule_id"}` or `{"action": "add", "day", "kind", "minutes"}`.
+    A moved session is the same session on the new day; a changed one is built
+    anew (`planning.build_session`).
+
+    The athlete decides. Nothing here refuses a change because the rules would
+    not make it - more volume than the step, two hard days in a row, a run on
+    a rest day: each becomes a note (`change_notes`), and the change is kept.
+    Refused is only what cannot be done: an entry the calendar mirror does not
+    hold, a day that has passed or lies beyond the window, today's entry once
+    today's run is done, and a move of a workout this app did not make - it has
+    no session to put on the new day (it can be taken out, or replaced)."""
+    from . import snapshot
+
+    anchor = today or paths.today()
+    if not isinstance(edits, list) or not edits:
+        raise ValueError("no change given - say what to move, change, take out or add")
+    if len(edits) > MAX_CHANGES:
+        raise ValueError(f"at most {MAX_CHANGES} changes at once")
+    if not all(isinstance(e, dict) and e.get("action") in CHANGE_ACTIONS for e in edits):
+        raise ValueError(f"each change is one of {', '.join(CHANGE_ACTIONS)}")
+    sids = []
+    for e in edits:
+        if e["action"] == "add":
+            continue
+        try:
+            sids.append(int(e.get("schedule_id")))
+        except (TypeError, ValueError):
+            raise ValueError(f"{e['action']} needs the schedule id of the calendar entry, "
+                             f"got {e.get('schedule_id')!r}") from None
+    if len(set(sids)) != len(sids):
+        raise ValueError("each calendar entry can be changed once in one proposal")
+    entries = {r["schedule_id"]: r for r in _calendar_entries(store, sids, today=anchor)}
+    snap = snapshot.assemble(store, today=anchor)
+    zones = snap.get("zones") or {}
+    specs = store.workout_specs()
+    ran_today = bool(store.running_seconds_by_day(anchor, anchor))
+
+    def build(kind, minutes) -> planning.SessionSpec:
+        return planning.with_fallback(planning.build_session(
+            str(kind), duration_min=_change_minutes(minutes), zones=zones, today=anchor))
+
+    replaces: list[dict] = []
+    new: list[tuple[date, planning.SessionSpec]] = []
+    for e in edits:
+        if e["action"] == "add":
+            new.append((_change_day(e.get("day"), today=anchor),
+                        build(e.get("kind") or "easy", e.get("minutes"))))
+            continue
+        r = entries[int(e["schedule_id"])]
+        was = date.fromisoformat(r["day"])
+        if was < anchor:
+            raise ValueError(f"{was} has passed - only what lies ahead can be changed")
+        if was == anchor and ran_today:
+            raise ValueError("today's run is done - change what lies ahead")
+        own = specs.get(r.get("workout_id"))
+        replaces.append(r)
+        if e["action"] == "remove":
+            continue
+        day = _change_day(e["day"], today=anchor) if e.get("day") else was
+        if e["action"] == "move":
+            if own is None:
+                raise ValueError(f"\"{r.get('title')}\" is not a session this app planned: it "
+                                 f"can be taken out, or replaced with one of the app's - or "
+                                 f"moved in Garmin Connect")
+            if day == was:
+                raise ValueError(f"\"{r.get('title')}\" is on {was} already")
+            try:
+                new.append((day, planning.from_json(own)))
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(f"the session behind \"{r.get('title')}\" could not be read - "
+                                 f"take it out and add one instead") from None
+            continue
+        kind = e.get("kind") or (own or {}).get("kind")
+        minutes = e.get("minutes") or (round(int(own.get("estimated_seconds") or 0) / 60)
+                                       if own else None)
+        if not kind or not minutes:
+            raise ValueError(f"\"{r.get('title')}\" is not a session this app planned - say the "
+                             f"kind and the minutes of the one that takes its place")
+        new.append((day, build(kind, minutes)))
+    notes = change_notes(store, anchor, snap, replaces, new)
+    new.sort(key=lambda x: x[0])
+    return _file([_item(d, s) for d, s in new], replaces=replaces, assumptions=[], zones=zones,
+                 notes=notes)
+
+
+def change_notes(store: Store, anchor: date, snap: dict, replaces: list[dict],
+                 new: list[tuple]) -> list[str]:
+    """What the rules think of the athlete's change - said, never enforced.
+
+    About the CHANGE, not the week as it was: a note names a session the
+    change puts on the calendar, or something the change makes worse (more
+    minutes than before and over the plan's size, more hard sessions than
+    before and over two, the week's last hard session gone). The same rules
+    the planner builds a week with: its size (`_week_plan`), 48 hours between
+    hard days with the long run counting as one, the athlete's word
+    (`logic.check_in_blocks`), today's call, the days they cannot run, the
+    longest session (`_session_cap`)."""
+    from . import snapshot
+
+    said = snapshot.check_in_state(store, anchor)
+    decision = snap.get("decision_today") or {}
+    call = decision.get("decision")
+    gone = {int(r["schedule_id"]) for r in replaces}
+    own_kinds = {w["workout_id"]: w["kind"] for w in store.own_workouts() if w["workout_id"]}
+    specs = store.workout_specs()
+    profile = snapshot.load_profile()
+    off = habits.week(profile, athlete_habits(store, anchor)).off_days
+    cap, cap_line = _session_cap(store, anchor)
+    ran_today = bool(store.running_seconds_by_day(anchor, anchor))
+    notes: list[str] = []
+
+    def minutes_of(e: dict) -> int | None:
+        spec = specs.get(e.get("workout_id"))
+        return round(spec["estimated_seconds"] / 60) if spec else None
+
+    def cls(kind: str) -> str:
+        return "hard" if kind in planning.HARD_KINDS else "long" if kind == "long" else "easy"
+
+    for day, spec in new:
+        name = f"{_when(day)} {spec.name}"
+        hard = spec.kind in planning.HARD_KINDS
+        blocked = logic.check_in_blocks(said, anchor, day, hard=hard) if said else None
+        if blocked == logic.NO_RUN_TODAY:
+            notes.append(f"{name}: {logic.check_in_words(said, anchor)} - I would not run while "
+                         f"it holds; rest is what settles it.")
+        elif blocked:
+            notes.append(f"{name}: {logic.check_in_words(said, anchor)} - I would keep it easy "
+                         f"until {_when(logic.check_in_hard_from(said, anchor))}.")
+        if day == anchor and call == "rest" and blocked != logic.NO_RUN_TODAY:
+            notes.append(f"{name}: today's call is Rest - I would not run today.")
+        elif day == anchor and call == "easy" and hard and not blocked:
+            notes.append(f"{name}: today's call is Easy - I would run its easy option today.")
+        if planning.WEEKDAYS[day.weekday()] in off:
+            notes.append(f"{name}: you told the app you cannot run on "
+                         f"{WEEKDAYS[day.weekday()]}days.")
+        if cap and spec.estimated_seconds // 60 > cap:
+            notes.append(f"{name}: longer than the plan gives any session now - {cap_line}.")
+        there = [e for e in store.get_scheduled_workouts(day, day) if int(e["schedule_id"]) not in gone]
+        if there:
+            notes.append(f"{_when(day)} already holds \"{there[0].get('title') or '?'}\" - both "
+                         f"would be on the calendar.")
+
+    mondays = sorted({d - timedelta(days=d.weekday()) for d, _ in new}
+                     | {date.fromisoformat(r["day"]) - timedelta(days=date.fromisoformat(r["day"]).weekday())
+                        for r in replaces})
+    last_hard = store.last_hard_day(anchor)
+    for monday in mondays:
+        sunday = monday + timedelta(days=6)
+        ahead = [e for e in store.get_scheduled_workouts(max(monday, anchor), sunday)
+                 if not (ran_today and date.fromisoformat(e["day"]) == anchor)]
+        before = [(date.fromisoformat(e["day"]), planning.calendar_kind(e, own_kinds), minutes_of(e))
+                  for e in ahead]
+        after = [x for x, e in zip(before, ahead, strict=True) if int(e["schedule_id"]) not in gone]
+        mine = [(d, s) for d, s in new if monday <= d <= sunday]
+        after += [(d, cls(s.kind), s.estimated_seconds // 60) for d, s in mine]
+        done = [a for a in store.activity_days(monday, min(anchor, sunday))
+                if "running" in str(a["type"]).lower()] if monday <= anchor else []
+        done_min = sum(a["duration_s"] for a in done) // 60
+        done_hard = sum(1 for a in done if a["hard"])
+        budget, _, mode = _week_plan(store, monday - timedelta(days=1) if monday <= anchor
+                                     else anchor, monday)
+        total_before = done_min + sum(m or 0 for _, _, m in before)
+        total_after = done_min + sum(m or 0 for _, _, m in after)
+        if budget and total_after > budget * 1.05 and total_after > total_before:
+            notes.append(f"This week would hold ~{total_after} min of running; the plan would give "
+                         f"it ~{budget} min ({_MODE_WORDS.get(mode, mode)}) - "
+                         f"{round((total_after / budget - 1) * 100)} % more. More at once than "
+                         f"the plan's step is where overuse injuries start; I would add it over "
+                         f"two or three weeks.")
+        q_before = done_hard + sum(1 for _, k, _ in before if k == "hard")
+        q_after = done_hard + sum(1 for _, k, _ in after if k == "hard")
+        if q_after > 2 and q_after > q_before:
+            notes.append(f"{q_after} hard sessions this week - the plan holds two at most, so "
+                         f"about 80 % of your running stays easy.")
+        if mode == "return":
+            for d, s in mine:
+                if s.kind in planning.HARD_KINDS:
+                    notes.append(f"{_when(d)} {s.name}: this is a return week after your pause - "
+                                 f"I would keep it easy; the hard sessions come back the week "
+                                 f"after.")
+        elif q_before > 0 and q_after == 0:
+            # What it lost, by name: the session the change takes off. Not the
+            # day's `next_stimulus` - that one already counts the session
+            # being removed as planned, and named the other kind.
+            lost = [own_kinds.get(r.get("workout_id")) for r in replaces
+                    if monday <= date.fromisoformat(r["day"]) <= sunday]
+            lost = [k for k in lost if k in _STIMULUS_WORDS]
+            what = f" - it loses its {_STIMULUS_WORDS[lost[0]]}, the week's stimulus" if lost else ""
+            notes.append(f"This week no longer holds a hard session{what}. Without one the week "
+                         f"keeps your fitness rather than building it; I would keep it, on "
+                         f"another day if this one does not fit.")
+        hard_days = {d: k for d, k, _ in after if k in ("hard", "long")}
+        hard_days.update({a["day"]: "hard" for a in done if a["hard"]})
+        if last_hard and last_hard < monday:
+            hard_days.setdefault(last_hard, "hard")
+        for d, s in mine:
+            if cls(s.kind) == "easy":
+                continue
+            close = sorted(o for o in hard_days if o != d and abs((o - d).days) < logic.HARD_SPACING_DAYS)
+            if close:
+                notes.append(f"{_when(d)} {s.name} is {abs((close[0] - d).days) * 24} hours from the "
+                             f"{'long run' if hard_days[close[0]] == 'long' else 'hard session'} on "
+                             f"{_when(close[0])} - hard days sit 48 hours apart; I would put an easy "
+                             f"day between them.")
+    return list(dict.fromkeys(notes))
+
+
+#: How the change's notes name the session the week is due.
+_STIMULUS_WORDS = {"vo2max": "VO2max intervals", "threshold": "threshold reps",
+                   "steady": "steady block (the VO2max measurement)"}
 
 
 def apply(store: Store, client, proposal_id: str, *, today: date | None = None) -> dict:

@@ -74,8 +74,9 @@ sync_garmin). Rules:
   {"kind":"$KIND","ref":"<reference, e.g. activity id, else empty>","day":"<YYYY-MM-DD>",
    "headline":"<one sentence>","bullets":["..."],"verdict":"<short>"}
   Optionally add "delta":"<one sentence>" if a previous card is given below.
-  If you filed a session with propose_workout, add "proposal":"<its id>" - the
-  athlete applies it with a click on the card; you never call apply_workout.
+  If you filed a session with propose_workout, propose_week or propose_change,
+  add "proposal":"<its id>" - the athlete applies it with a click on the card;
+  you never call apply_workout.
   Optionally add "next": at most 2 next steps the athlete can start with one
   tap, only where the verdict calls for one - [{"action":"<plan-week |
   train-today | week-review | why-vo2max>","why":"<a few words>"}]. Only these

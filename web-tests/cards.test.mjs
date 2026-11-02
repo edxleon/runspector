@@ -540,3 +540,23 @@ test("a card says when the list for the coach is full", () => {
   assert.match(renderTold([], true), /Not noted<\/span>\s*your list for the coach is full/);
   assert.equal(renderTold([], false), "");
 });
+
+test("renderProposal: the athlete's change puts the coach's word next to the button", async () => {
+  const { renderProposal } = await import("../src/runspector/web/static/cards.js");
+  const note = "Wed 4 Nov Threshold is 24 hours from the hard session on Tue 3 Nov - hard days sit 48 hours apart.";
+  const p = { id: "p-20261102-120000-abcd", day: "2026-11-04", days: 1, status: "open", change: true,
+              notes: [note], preview: "Wed 2026-11-04: Threshold 3x10 min\n  coach: " + note };
+  const html = renderProposal(p);
+  assert.match(html, /Your change/);
+  assert.match(html, /The coach/);
+  assert.match(html, /hard days sit 48 hours apart/);
+  assert.doesNotMatch(html.split("proposal-steps")[1].split("</pre>")[0], /coach:/,
+                      "said once, next to the button - not again in the steps");
+  assert.match(html, /Put the change on watch/);
+  const fine = renderProposal({ ...p, notes: [], preview: "Fri 2026-11-06: Easy run 24 min" });
+  assert.match(fine, /nothing against it/);
+  const out = renderProposal({ ...p, days: 0, notes: [], preview: "Takes off the calendar: Mon 2026-11-02 \"Easy\"" });
+  assert.match(out, /Take it off the watch/);
+  const done = renderProposal({ ...p, status: "applied", pending: 0, workouts: [] });
+  assert.match(done, /Undo the change/);
+});

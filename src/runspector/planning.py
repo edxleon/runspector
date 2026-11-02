@@ -515,6 +515,52 @@ def describe(spec: SessionSpec) -> str:
     return "\n".join(lines)
 
 
+#: What each kind of session is, in the words of the week strip's detail.
+KIND_WORDS = {
+    "easy": "Easy run - slow enough to talk in full sentences",
+    "long": "Long run - easy, only longer",
+    "threshold": "Threshold - comfortably hard, zone 4",
+    "vo2max": "VO2max intervals - hard, zone 5",
+    "steady": "Steady block at threshold - the run Garmin measures VO2max on",
+}
+_STEP_WORDS = {"warmup": "Warm-up", "interval": "Run", "recovery": "Easy jog",
+               "cooldown": "Cool-down"}
+
+
+def _target_words(t: dict | None) -> str:
+    if not t:
+        return ""
+    if t["type"] == "hr_zone":
+        return f"HR zone {t['zone']}"
+    if t["type"] == "hr_bpm":
+        return f"HR {t['lo']}-{t['hi']} bpm"
+    lo, hi = t["lo_s_per_km"], t["hi_s_per_km"]
+    return f"{lo // 60}:{lo % 60:02d}-{hi // 60}:{hi % 60:02d}/km"
+
+
+def session_detail(spec: SessionSpec) -> dict:
+    """What a planned session is, for a tap on its box in the week strip: the
+    kind in words, its length, distance and average pace (an estimate from the
+    athlete's paces, warm-up included), the steps, and its easier option.
+    Live use: three boxes named "Easy run 24 min" and no way to see more."""
+    def step(s: Step) -> str:
+        amount = (f"{s.meters / 1000:.1f} km" if s.meters
+                  else f"{s.seconds // 60}:{s.seconds % 60:02d} min")
+        return " ".join(x for x in (_STEP_WORDS.get(s.kind, s.kind), amount,
+                                    _target_words(s.target)) if x)
+
+    steps = []
+    for b in spec.blocks:
+        steps.append(f"{b.iterations}× " + " + ".join(step(s) for s in b.steps)
+                     if isinstance(b, Repeat) else step(b))
+    km = spec.estimated_meters / 1000
+    pace = round(spec.estimated_seconds / km) if km > 0 else None
+    return {"kind": spec.kind, "what": KIND_WORDS.get(spec.kind, spec.kind),
+            "minutes": round(spec.estimated_seconds / 60), "km": round(km, 1),
+            "pace": f"~{pace // 60}:{pace % 60:02d}/km" if pace else None,
+            "steps": steps, "easier_min": spec.fallback_min}
+
+
 def to_json(spec: SessionSpec) -> dict:
     def step(s: Step) -> dict:
         return {"kind": s.kind, "seconds": s.seconds, "meters": s.meters,

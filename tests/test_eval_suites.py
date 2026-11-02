@@ -46,13 +46,16 @@ def test_every_conversation_step_is_one_action_with_known_checks():
     spec = yaml.safe_load((EVALS / "conversations.yaml").read_text(encoding="utf-8"))
     actions = {"ask", "follow", "template", "forget"}
     checks = {"while_pending", "memory_has", "memory_lacks", "memory_max", "check_in", "prompt_has",
-              "given_lacks", "judge"}
+              "given_lacks", "proposal", "judge"}
+    proposal_keys = {"adds", "takes_off", "minutes", "kinds", "within_days"}
     ids = [s["id"] for s in spec["stories"]]
     assert len(ids) == len(set(ids))
     for story in spec["stories"]:
         assert "ask" in story["steps"][0], f"{story['id']}: a conversation starts with a question"
         for step in story["steps"]:
             assert len(actions & set(step)) == 1 and set(step) <= actions | checks, (story["id"], step)
+            if "proposal" in step:
+                assert set(step["proposal"]) <= proposal_keys, (story["id"], step["proposal"])
             if "judge" in step:
                 assert "PASS" in step["judge"] and "FAIL" in step["judge"], \
                     f"{story['id']}: a judge question says what passes and what fails"

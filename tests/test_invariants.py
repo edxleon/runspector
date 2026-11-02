@@ -1583,6 +1583,7 @@ def test_a_busy_file_never_makes_a_queued_job_invisible(tmp_path, monkeypatch):
 #: user. `test_ui_smoke.py` renders the page but never clicks.
 _CLIENT_CALL = {
     "/api/plan/undo": "POST",
+    "/api/week/change": "POST",
     "/api/state": "GET",
     "/api/refresh": "GET",
     "/api/jobs": "GET",

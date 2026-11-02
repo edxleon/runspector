@@ -28,7 +28,7 @@ a release note that cites one still points at the right section. The order is th
 | 2 | How a run felt - *the rest of the item is in v0.7* | medium | small |
 | 17 | The planned week's load shown before the yes | medium (trust, and a check on the planner) | small |
 | 18 | What kind of strength day it was: legs, upper body, whole body | medium (runners who lift) | small |
-| 19 | A planned session moved to another day | medium | medium |
+| 19 | The planned week changed by the athlete: a session moved, shortened, swapped or taken out, in a tap or in words, with the coach's word on it - *done for v0.10, not yet released* | high (every planned week that meets a real week) | medium |
 | 20 | A fitness trend beside VO2max: aerobic decoupling on steady runs | medium | medium |
 | 13 | Deeper history on first install | medium (install day only) | medium |
 | 21 | Installed from Claude Desktop in one file | medium (install day, Claude Desktop users) | medium |
@@ -340,17 +340,37 @@ upper body keeps the quality run off that day, not the next. A profile key with 
 the row in `you.js` (`WEEK_ROWS`) and the planner's reading in `habits.week`; a scenario test red
 first.
 
-## 19. A planned session moved to another day
+## 19. The planned week, changed by the athlete
 
-"Thursday's intervals on Friday" is the most common change to a week, and the app cannot take it.
-A red day can swap the hard session for its easier version and a week can be planned again, but a
-single session cannot be moved.
+"Thursday's intervals on Friday" is the most common change to a week, and the app could not take it.
+A red day could swap the hard session for its easier version and a week could be planned again, but
+a single session could not be moved, shortened or taken out - and the week strip showed a name per
+day and nothing about what was behind it. Found in live use: a week was planned on Mon, Tue and Sat,
+and the athlete saw it did not fit.
 
-What it takes: a move that checks the new day against the same rules as a planned one - 48 hours
-between hard stimuli, the check-in gate, sport days and days off - and refuses with the reason when
-it fails. On Garmin it is the app's own unschedule and schedule, never a delete (`plan.py`); a run
-already done is not moved; a day that already holds a session asks first. Undo as for every apply.
-It is on the write path, so it gets the deep review.
+*Done for v0.10, not yet released.* The athlete decides; the coach says what it thinks of it.
+- **A tap on a day** of the week strip opens it: what the session is (its kind in words, minutes,
+  distance, average pace, the steps of a hard one, its easier option), and the changes - move it to a
+  day of the next two weeks, another length or kind, take it out, or add a run on an empty day. A
+  workout from the athlete's own Garmin calendar (one the app did not make) can be taken out or
+  replaced, not moved: the app has no session to put on the new day.
+- **In words**, under the strip or in any question to the coach: "Friday instead of Saturday". The
+  coach reads the calendar with each day's weekday and date and calls `propose_change` with the
+  changes asked for - nothing else.
+- **One path** for both, `plan.propose_change`: a proposal like every other - what goes on, what
+  comes off - applied after "Put on watch" and undone the same way (also when it only took a session
+  off). Refused is only what cannot be done: a day that has passed or lies beyond the calendar
+  window, an entry the app does not see, today's entry once today's run is done.
+- **The coach's word, never a refusal** (`plan.change_notes`): more minutes than the plan would give
+  the week, two hard days within 48 hours (the long run counts), more than two hard sessions, a hard
+  session in a return week, the week's last hard session gone (and which it was), a run on a day the
+  athlete said they are ill or in pain, on today's Rest, on a day they cannot run, longer than any
+  session may be now, or on a day that already holds one. Each about the change, not the week as it
+  was; each shown beside the button.
+
+Next: a moved session keeps its identity on Garmin (today the move uploads a copy and unschedules
+the old entry); a foreign workout moved with its own Garmin id; the change's load projected the way
+item 17 describes.
 
 ## 20. A fitness trend beside VO2max
 

@@ -378,15 +378,30 @@ def vo2max_factors(all_sessions: list[dict], *, today: date) -> dict:
             "covers_full_window": bool(oldest and date.fromisoformat(oldest) <= prev_from)}
 
 
-def build_plan(scheduled: list[dict], runs: list[dict], today: date) -> dict:
+def build_plan(scheduled: list[dict], runs: list[dict], today: date,
+               specs: dict | None = None) -> dict:
     """Week strip: per day Mon–Sun what was planned and what was done — the bridge
-    between the coach's advice and what is actually on the watch."""
+    between the coach's advice and what is actually on the watch.
+
+    Each planned entry carries its calendar id (what a change names), whether
+    this app made it (`own`), and for its own the `detail` a tap on the box
+    shows (`planning.session_detail`, from `specs`: workout id -> session).
+    A workout the app did not make has its name and nothing else."""
+    from . import planning
+
     monday = today - timedelta(days=today.weekday())
     lo, hi = monday.isoformat(), (monday + timedelta(days=6)).isoformat()
     planned: dict[str, list] = {}
     upcoming: list[dict] = []
+    specs = specs or {}
     for g in scheduled or []:
-        entry = {"title": g.get("title"), "sport": g.get("sport"), "workout_id": g.get("workout_id")}
+        spec = specs.get(g.get("workout_id"))
+        try:
+            detail = planning.session_detail(planning.from_json(spec)) if spec else None
+        except (KeyError, TypeError, ValueError):
+            detail = None
+        entry = {"title": g.get("title"), "sport": g.get("sport"), "workout_id": g.get("workout_id"),
+                 "schedule_id": g.get("schedule_id"), "own": spec is not None, "detail": detail}
         if lo <= g["day"] <= hi:
             planned.setdefault(g["day"], []).append(entry)
         elif g["day"] > hi:
@@ -750,7 +765,8 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
     decision = build_decision(today_block, weeks, today, stimulus=stimulus, comeback=cb,
                               check_ins=said)
     plan = build_plan(soft(store.get_scheduled_workouts, today - timedelta(days=today.weekday()),
-                           today + timedelta(days=14), default=[]), runs, today)
+                           today + timedelta(days=14), default=[]), runs, today,
+                      specs=soft(store.workout_specs, default={}))
     mark_held(plan, said, today, own_kind, call=decision.get("decision"))
 
     return {
