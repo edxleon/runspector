@@ -565,7 +565,11 @@ export function renderProposal(p, opts = {}) {
     <div class="subhead">${byCoach ? "The coach's change, from your words" : change ? "Your change" : week ? `Proposed week · ${esc(p.days)} sessions`
       : "Proposed session"}${p.day && !change ? ` · ${esc(p.day)}` : ""}${
       partial ? ` · ${esc(Number(p.days || 1) - pending)} of ${esc(p.days)} on Garmin` : ""}</div>
-    <pre class="proposal-steps">${esc(steps)}</pre>
+    ${change && Array.isArray(p.lines) && p.lines.length
+      ? `<ul class="change-lines">${p.lines.map(l => `<li>${esc(l)}</li>`).join("")}</ul>
+         <details class="card-more"><summary>What goes to Garmin</summary><pre class="proposal-steps">${
+           esc(steps)}</pre></details>`
+      : `<pre class="proposal-steps">${esc(steps)}</pre>`}
     ${coach}
     ${warn}
     <div class="btn-row">${button}</div>

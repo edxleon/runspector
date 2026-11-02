@@ -599,3 +599,14 @@ test("renderProposal: an old day Garmin would not take off gets its own button",
   assert.match(html, /Take the old day off/);
   assert.match(html, /Undo the change/);
 });
+
+test("renderProposal: a change reads as what happens to each day, the watch's details folded", async () => {
+  const { renderProposal } = await import("../src/runspector/web/static/cards.js");
+  const html = renderProposal({ id: "p-20261102-120000-abcd", day: "2026-11-05", days: 1, status: "open",
+    change: true, filed_by: "athlete", notes: [],
+    lines: ["Thu 5 Nov: Easy run 24 min - moved from Fri 6 Nov", "Mon 2 Nov: \"<b>Run</b>\" - taken out"],
+    preview: "Thu 2026-11-05: Easy run 24 min\nreplaces on the calendar: 2026-11-06 (schedule 4471209)" });
+  assert.match(html, /<li>Thu 5 Nov: Easy run 24 min - moved from Fri 6 Nov<\/li>/);
+  assert.match(html, /&lt;b&gt;Run&lt;\/b&gt;/);
+  assert.match(html, /<details[^>]*><summary>What goes to Garmin<\/summary><pre class="proposal-steps">/);
+});

@@ -1039,6 +1039,10 @@ def propose_change(store: Store, edits: list[dict], *, today: date | None = None
     for i, (_, _, r) in enumerate(new):
         if r is not None:
             r["for_item"] = i
+    for e in edits:                    # how each entry is changed: for the plain lines
+        if e["action"] != "add":
+            r = entries[_whole(e["schedule_id"], "schedule_id")]
+            r["edit"] = e["action"]
     p = _file([_item(d, sp) for d, sp, _ in new], replaces=replaces, assumptions=[], zones=zones,
               notes=notes)
     # Who filed it - the athlete in the strip, or the coach from their words
@@ -1046,6 +1050,34 @@ def propose_change(store: Store, edits: list[dict], *, today: date | None = None
     p["filed_by"] = "coach" if filed_by == "coach" else "athlete"
     paths.write_json_atomic(_path(p["id"]), p)
     return p
+
+
+def change_lines(p: dict) -> list[str]:
+    """The change in plain words, one line per day it touches - what the
+    athlete reads before the yes (live run: "replaces on the calendar ...
+    (schedule 4471209)" was what they got). The details for the watch stay
+    in the preview."""
+    items = p.get("items") or []
+    replaces = p.get("replaces") or []
+    by_item = {r.get("for_item"): r for r in replaces if r.get("for_item") is not None}
+    out = []
+    for i, it in enumerate(items):
+        day = date.fromisoformat(it["day"])
+        name = (it.get("spec") or {}).get("name") or "Session"
+        r = by_item.get(i)
+        if r is None:
+            out.append(f"{_when(day)}: {name} - added")
+        elif r.get("edit") == "move":
+            out.append(f"{_when(day)}: {name} - moved from {_when(date.fromisoformat(r['day']))}")
+        elif r.get("day") == it["day"]:
+            out.append(f"{_when(day)}: {name} - in place of \"{r.get('title') or '?'}\"")
+        else:
+            out.append(f"{_when(day)}: {name} - in place of \"{r.get('title') or '?'}\" on "
+                       f"{_when(date.fromisoformat(r['day']))}")
+    for r in replaces:
+        if r.get("for_item") is None:
+            out.append(f"{_when(date.fromisoformat(r['day']))}: \"{r.get('title') or '?'}\" - taken out")
+    return out
 
 
 def change_notes(store: Store, anchor: date, snap: dict, replaces: list[dict],

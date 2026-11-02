@@ -802,7 +802,7 @@ def test_a_question_on_a_card_gets_the_rules_for_a_change(store, today):
     from runspector.web import server
 
     text = server._follow_up_text({"id": "j-1"}, "Friday instead of Saturday", "abcd", [])
-    assert "propose_change" in text and "THEY name" in text and "not done" in text
+    assert "propose_change" in text and "THEY name" in text and "never \"done\"" in text
 
 
 class _CalendarFake(FakeGarmin):
@@ -882,3 +882,26 @@ def test_should_i_train_today_asked_anywhere_today_is_not_offered_again(today):
     week = card("plan-week", next=[{"action": "train-today"}, {"action": "week-review"}])
     shown = {c["id"]: c["next"] for c in jobs.public_cards()}
     assert shown[week] == [{"action": "week-review", "why": ""}], shown[week]
+
+
+def test_a_change_reads_as_what_happens_to_each_day(store, today):
+    """Live run: the change showed "replaces on the calendar: ... (schedule
+    4471209)" and an assumption about threshold pace on an easy run. Each
+    day in plain words, the details for the watch behind them."""
+    monday = _the_return_week(store, today)
+    fri, sat, thu = (monday + timedelta(days=d) for d in (4, 5, 3))
+    p = plan.propose_change(store, [
+        {"schedule_id": 16, "action": "move", "day": fri.isoformat()},
+        {"schedule_id": 12, "action": "change", "minutes": 20},
+        {"schedule_id": 11, "action": "remove"},
+        {"action": "add", "day": thu.isoformat(), "kind": "easy", "minutes": 30}], today=today)
+    lines = plan.change_lines(p)
+    tue = monday + timedelta(days=1)
+    assert lines == [
+        f"{plan._when(tue)}: Easy run 20 min - in place of \"Easy run 24 min\"",
+        f"{plan._when(thu)}: Easy run 30 min - added",
+        f"{plan._when(fri)}: Easy run 24 min - moved from {plan._when(sat)}",
+        f"{plan._when(monday)}: \"Easy run 24 min\" - taken out",
+    ], lines
+    out, _ = _app(store).change_week({"edits": [{"schedule_id": 11, "action": "remove"}]})
+    assert out["proposal"]["lines"] == [f"{plan._when(monday)}: \"Easy run 24 min\" - taken out"]

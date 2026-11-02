@@ -643,13 +643,13 @@ function askCoach(question) {
   });
 }
 
-async function spawn(body, recompute) {
+async function spawn(body, recompute, where = "in the Coach tab") {
   if (spawnRunning) { toast("Already starting — one moment.", { warn: true }); return false; }
   spawnRunning = true;
   document.querySelectorAll("button[data-tpl], button[data-ask]").forEach(b => (b.disabled = true));
   try {
     const started = await apiPost("/api/spawn", body);
-    toast("Running — the answer will appear in the Coach tab.",
+    toast(`Running — the answer will appear ${where}.`,
           { action: "View", onAction: () => showView("coach"), ms: 8000 });
     await refresh();
     poller.start();
@@ -1820,7 +1820,7 @@ function onPlanClick(ev) {
       // text stayed as if nothing had happened).
       const field = () => document.querySelector("[data-plan-say]");
       if (field()) field().value = "";
-      const r = await spawn({ question: text }, () => {});
+      const r = await spawn({ question: text }, () => {}, "here, under the week strip");
       if (r?.job?.id) { planAskedSave(r.job.id); renderWeek(); }
       else if (!r && field() && !field().value) field().value = text;
     });
