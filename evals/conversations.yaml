@@ -17,8 +17,9 @@
 #   check_in: the check-in the card offers (ill, pain, sore, stressed) or none
 #   prompt_has: substrings the coach's task must hold (the conversation it got)
 #   given_lacks: regexes the kept facts the coach was given must not match
-#   proposal: the athlete's change the card filed - adds / takes_off (weekdays), minutes and
-#             kinds (weekday -> value), within_days (the days it touches are this close)
+#   proposal: the athlete's change the card filed - adds / takes_off (weekdays), only (it
+#             touches no other weekday), minutes and kinds (weekday -> value), within_days
+#             (the days it touches are this close)
 #   judge: a SELF-CONTAINED question about the answer (the judge sees nothing else)
 #
 # German umlauts are YAML escapes (\u00fc): the repo's text is ASCII
@@ -121,13 +122,15 @@ stories:
         proposal:
           takes_off: ["Sat", "Sun"]
           adds: ["Fri", "Sun"]
+          only: true
           minutes: {"Sun": 60}
           within_days: 7
         judge: >-
           The athlete asked to run on Friday instead of Saturday and to keep Sunday's long run to
-          60 minutes. PASS if the answer says the change was filed as they asked and that it reaches
-          the watch only when they apply it. FAIL if it says something is already on the watch, or
-          moves days the athlete did not name.
+          60 minutes. PASS if the answer presents both changes as prepared for them to apply (with
+          a button, a click, or their yes) and does not claim they are already on the watch. A
+          suggestion of something else the athlete could do is fine. FAIL if it says the change is
+          already on the watch or calendar, or says it changed a day the athlete did not name.
 
   - id: an-ambitious-change-is-kept-and-commented
     steps:

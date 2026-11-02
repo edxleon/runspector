@@ -587,3 +587,15 @@ test("renderProposal: a change half done offers both the retry and the way back"
   assert.match(done, /Changed on Garmin/);
   assert.match(done, /Undo the change/);
 });
+
+test("renderProposal: an old day Garmin would not take off gets its own button", async () => {
+  // Round 2: Friday's session was up, Saturday's removal refused - no button
+  // could try again.
+  const { renderProposal } = await import("../src/runspector/web/static/cards.js");
+  const html = renderProposal({ id: "p-20261102-120000-abcd", day: "2026-11-06", days: 1,
+    status: "applied", change: true, filed_by: "athlete", notes: [], pending: 0, retry_off: 1,
+    taken_off: 0, workouts: [9001], preview: "Fri 2026-11-06: Easy run 24 min" });
+  assert.match(html, /data-apply=/);
+  assert.match(html, /Take the old day off/);
+  assert.match(html, /Undo the change/);
+});

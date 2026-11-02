@@ -47,7 +47,7 @@ def test_every_conversation_step_is_one_action_with_known_checks():
     actions = {"ask", "follow", "template", "forget"}
     checks = {"while_pending", "memory_has", "memory_lacks", "memory_max", "check_in", "prompt_has",
               "given_lacks", "proposal", "judge"}
-    proposal_keys = {"adds", "takes_off", "minutes", "kinds", "within_days"}
+    proposal_keys = {"adds", "takes_off", "only", "minutes", "kinds", "within_days"}
     ids = [s["id"] for s in spec["stories"]]
     assert len(ids) == len(set(ids))
     for story in spec["stories"]:

@@ -207,6 +207,9 @@ def changes_on_calendar(store: Store, *, filed_by: str = "athlete", limit: int =
         if not d or d.get("change") is not True or d.get("filed_by", "athlete") != filed_by \
                 or str(d.get("created") or "") < cutoff:
             continue
+        ahead = paths.today().isoformat()
+        if not any(str(x.get("day") or "") >= ahead for x in d["items"] + list(d.get("replaces") or [])):
+            continue                     # all in the past: nothing to undo there (round 2)
         if any(it.get("schedule_id") for it in d["items"]) or any(
                 r.get("removed") and not r.get("restored") for r in d.get("replaces") or []):
             out.append(d)
@@ -372,6 +375,9 @@ def _finish(store: Store, proposal_id: str, local: dict, warnings: list[str]) ->
             seen.add(w)
             merged.append(w)
     fresh["warnings"] = merged[-MAX_WARNINGS:]
+    # Again, now that what this call took off or put back is merged in: the
+    # status of a removal-only change follows its entries (round 2).
+    _reconcile(store, fresh)
     if fresh.get("status") == "applied" and not fresh.get("applied_at"):
         fresh["applied_at"] = _now().isoformat(timespec="seconds")
     paths.write_json_atomic(_path(proposal_id), fresh)
@@ -1187,8 +1193,11 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
     # applies writing the same file can lose each other's ids, and the file is
     # also what a stale reader saw. Reconcile before deciding anything.
     _reconcile(store, p)
-    pending = [i for i, it in enumerate(p["items"]) if not _is_placed(it)]
-    if p.get("status") != "open" and not pending:
+    pending = [i for i, it in enumerate(p["items"])
+               if not _is_placed(it) and not it.get("taken_off_by")]
+    # A removal Garmin refused is work left too - also once the new session
+    # is up (round 2: "apply again to retry" answered "already applied").
+    if p.get("status") != "open" and not pending and not retry_of(p):
         done = [str(it["workout_id"]) for it in p["items"] if it.get("workout_id")]
         return {**p, "error": (f"already applied on {p.get('applied_at')}: workout(s) "
                                f"{', '.join(done) or '-'} from {p.get('day')}. "
@@ -1251,8 +1260,8 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
             # The app's record of where its workout sits, and the proposal that
             # put it there, stay true: that week's undo would otherwise aim at
             # a calendar id that is gone, and offer to put the session back.
-            store.set_workout_schedule(wid_was, None, None)
-            _mark_taken_off(wid_was, proposal_id)
+            store.set_workout_schedule(wid_was, None, None, only_if=sid)
+            _mark_taken_off(wid_was, sid, proposal_id)
             log.info("unscheduled %s (workout %s) for proposal %s", sid, wid_was, proposal_id)
         except Exception as exc:  # noqa: BLE001 — the old entry stays, say so
             stays = ("both are on the calendar now" if p["items"]
@@ -1268,13 +1277,15 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
                 r["removed"] = False
                 warnings.append(f"unclear whether \"{r.get('title')}\" came off {r.get('day')} "
                                 f"({type(exc).__name__}) - look at your Garmin calendar")
-    if retry_replaces:
-        store.release_proposal_item(proposal_id, REPLACES_CLAIM_INDEX)
     # Saved BEFORE the first upload: an unschedule that happened must not be
     # forgotten because the upload after it failed. Through `_finish`, not a
     # raw dump - a concurrent apply may have recorded something in between.
     if todo:
         p = _finish(store, proposal_id, p, warnings)
+    # ...and only then open for another try: released before the save, a
+    # concurrent apply could read the old file and take the others off again.
+    if retry_replaces:
+        store.release_proposal_item(proposal_id, REPLACES_CLAIM_INDEX)
 
     failed_first: str | None = None
     for idx in pending:
@@ -1342,8 +1353,9 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
     # off: say so, never a quiet success.
     if not p["items"] and not any(r.get("removed") for r in p.get("replaces") or []):
         failed_first = "nothing was taken off the calendar: " + (
-            "; ".join(w for w in warnings if w.startswith(("did NOT", "could not")))
-            or "the entries are gone already")
+            "; ".join(w for w in warnings if w.startswith(("did NOT", "could not", "unclear")))
+            or "; ".join(f"\"{r.get('title')}\" on {r.get('day')} stays" for r in p.get("replaces") or [])
+            or "nothing to take off")
     done = _finish(store, proposal_id, p, warnings)
     return {**done, "error": failed_first} if failed_first else done
 
@@ -1436,6 +1448,11 @@ def undo(store: Store, client, proposal_id: str, *, today: date | None = None) -
     removed = 0
     for it in placed:
         sid, wid = int(it["schedule_id"]), it.get("workout_id")
+        # A day that has passed is left as it was - it may have been run
+        # (round 2: undo after the day took a past entry off).
+        if str(it.get("day") or "") < anchor.isoformat():
+            warnings.append(f"{it['day']}: left alone - that day has passed")
+            continue
         if wid not in ours:
             warnings.append(f"{it['day']}: workout {wid} is not one this app uploaded - left alone")
             continue
@@ -1492,7 +1509,7 @@ def _restore_replaced(store: Store, client, proposal_id: str, todo: list[dict], 
     for r in todo:
         day = date.fromisoformat(r["day"])
         if day < anchor:
-            r["restored"] = "past"
+            r["restored"], r["rev"] = "past", int(r.get("rev") or 0) + 1
             warnings.append(f"\"{r.get('title')}\" on {r['day']} is not put back - that day is past")
             continue
         try:
@@ -1503,7 +1520,7 @@ def _restore_replaced(store: Store, client, proposal_id: str, todo: list[dict], 
                 warnings.append(f"could not put \"{r.get('title')}\" back on {r['day']} "
                                 f"({type(exc).__name__}) - take it off again to retry")
             else:
-                r["restored"] = "unknown"
+                r["restored"], r["rev"] = "unknown", int(r.get("rev") or 0) + 1
                 warnings.append(f"unclear whether \"{r.get('title')}\" is back on {r['day']} "
                                 f"({type(exc).__name__}) - look at your Garmin calendar")
             continue
@@ -1513,8 +1530,8 @@ def _restore_replaced(store: Store, client, proposal_id: str, todo: list[dict], 
         # and the summary reported a removal that had not happened.
         r.update(removed=None, restored=True, schedule_id=sid,
                  rev=int(r.get("rev") or 0) + 1)
-        store.set_workout_schedule(int(r["workout_id"]), sid, day)
-        _mark_taken_off(int(r["workout_id"]), None)
+        store.set_workout_schedule(int(r["workout_id"]), sid, day, only_if=None)
+        _untake(int(r["workout_id"]), proposal_id, sid)
         log.info("put workout %s back on %s as %s for proposal %s", r["workout_id"], day, sid,
                  proposal_id)
         done.append(r)
@@ -1565,27 +1582,50 @@ def pending_of(p: dict, today: date | None = None) -> int:
                and str(it.get("day") or anchor) >= anchor)
 
 
-def _mark_taken_off(workout_id, by: str | None) -> None:
-    """On the proposal that placed `workout_id`: a later change took it off
-    the calendar (`by`, that change's id), or put it back (`None`). That
-    proposal then does not offer to put it back itself - the athlete moved it
-    on purpose. Read-modify-write of small local files; a file that does not
-    read is left alone."""
+def _mark_taken_off(workout_id, schedule_id: int, by: str) -> None:
+    """On the proposal that placed THIS calendar entry (`workout_id` at
+    `schedule_id`): a later change, `by`, took it off. That proposal then
+    neither claims the dead calendar id nor offers to put the session back -
+    the athlete moved it on purpose. By the calendar id, not the workout: the
+    same workout scheduled a second time is another entry (round 2)."""
+    _rewrite_items(lambda d, it: (d.get("id") != by and it.get("workout_id") == workout_id
+                                  and it.get("schedule_id") == schedule_id),
+                   lambda it: it.__setitem__("taken_off_by", by))
+
+
+def _untake(workout_id, by: str, schedule_id: int) -> None:
+    """Undo of change `by` put the workout back as `schedule_id`: the proposal
+    it came from holds it again."""
+    def back(it):
+        it.pop("taken_off_by", None)
+        it["schedule_id"] = schedule_id
+
+    _rewrite_items(lambda d, it: it.get("taken_off_by") == by and it.get("workout_id") == workout_id,
+                   back)
+
+
+def _rewrite_items(match, change) -> None:
+    """Read-modify-write of the proposal files whose items `match`. Small
+    local files; one that does not read is left alone."""
     for f in paths.proposals_dir().glob("p-*.json"):
         d = paths.read_json(f)
         if not isinstance(d, dict) or not isinstance(d.get("items"), list):
             continue
         hit = False
         for it in d["items"]:
-            if isinstance(it, dict) and it.get("workout_id") == workout_id \
-                    and it.get("taken_off_by") != by and d.get("id") != by:
-                if by is None:
-                    it.pop("taken_off_by", None)
-                else:
-                    it["taken_off_by"] = by
+            if isinstance(it, dict) and match(d, it):
+                change(it)
                 hit = True
         if hit:
             paths.write_json_atomic(f, d)
+
+
+def retry_of(p: dict) -> int:
+    """Calendar entries of an applied proposal that Garmin refused to take
+    off - nothing happened, so another apply may try (`apply`)."""
+    if p.get("status") != "applied":
+        return 0
+    return sum(1 for r in p.get("replaces") or [] if r.get("removed") is None and not r.get("restored"))
 
 
 def describe_result(p: dict) -> str:

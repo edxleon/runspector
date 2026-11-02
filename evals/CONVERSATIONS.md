@@ -1,6 +1,6 @@
 # Conversations with the coach - last run
 
-2026-11-02 13:54 CET, coach model: the CLI's default: **17/17 steps right**.
+2026-11-02 15:20 CET, coach model: the CLI's default: **19/19 steps right**.
 
 | story | result | failures |
 |---|---|---|
@@ -9,3 +9,5 @@
 | nothing-here-to-keep | PASS | - |
 | let-go-in-a-new-conversation | PASS | - |
 | a-long-conversation-keeps-its-start | PASS | - |
+| the-week-changed-in-words | PASS | - |
+| an-ambitious-change-is-kept-and-commented | PASS | - |

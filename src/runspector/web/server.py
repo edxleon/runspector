@@ -156,6 +156,7 @@ def _proposal_view(p: dict, pid: str | None = None) -> dict:
         view["filed_by"] = "coach" if p.get("filed_by") == "coach" else "athlete"
         view["taken_off"] = sum(1 for r in p.get("replaces") or []
                                 if r.get("removed") and not r.get("restored"))
+        view["retry_off"] = plan.retry_of(p)
     return view
 
 
@@ -326,7 +327,11 @@ class App:
         strip and their undo (`plan.changes_on_calendar`)."""
         from .. import plan
 
-        return [_proposal_view(p) for p in plan.changes_on_calendar(self.store)]
+        try:
+            return [_proposal_view(p) for p in plan.changes_on_calendar(self.store)]
+        except Exception:
+            log.warning("the athlete's changes could not be read", exc_info=True)
+            return []
 
     def change_week(self, op: dict) -> tuple[dict, int]:
         """The athlete's change to the planned week, from the week strip
@@ -358,7 +363,8 @@ class App:
             return {"error": "unknown or expired proposal - ask the coach again"}, 404
         # BEFORE the login: a second click on a finished proposal used to open a
         # Garmin session just to be told there was nothing to do.
-        if current.get("status") == "applied" and plan.pending_of(current) == 0:
+        if current.get("status") == "applied" and plan.pending_of(current) == 0 \
+                and not plan.retry_of(current):
             return {"error": plan.apply(self.store, None, pid)["error"],
                     "result": plan.describe_result(current),
                     "proposal": current}, 409
@@ -373,7 +379,7 @@ class App:
         # after the old day came off is not "Not applied" (review).
         taken = any(r.get("removed") for r in result.get("replaces") or [])
         if result.get("error"):
-            if pending == 0 and result.get("items"):     # nothing left to do - a second click
+            if pending == 0 and result.get("items") and not taken:   # nothing left - a second click
                 return {"error": result["error"], "proposal": result}, 409
             if not written and not taken:                # nothing was changed at all
                 return {"error": result["error"], "proposal": result}, 502
@@ -383,10 +389,11 @@ class App:
         # failed used to answer 200 {"ok": true} - the error field is only set
         # when the FIRST pending session fails, so a package that stopped in
         # the middle reported itself as done.
-        return {"ok": pending == 0, "pending": pending, "error": result.get("error"),
-                "result": plan.describe_result(result),
-                "proposal": {**{k: result.get(k) for k in ("id", "day", "days", "status", "warnings")},
-                             "workouts": written, "pending": pending}}, 200
+        # The same view the page draws a proposal from, so an open panel shows
+        # what the apply did - also a day taken off and its undo (round 2).
+        return {"ok": pending == 0 and not plan.retry_of(result), "pending": pending,
+                "error": result.get("error"), "result": plan.describe_result(result),
+                "proposal": {**_proposal_view(result), "workouts": written, "pending": pending}}, 200
 
     def undo_proposal(self, op: dict) -> tuple[dict, int]:
         """The other click: take an applied proposal back off the calendar.
@@ -927,7 +934,8 @@ workout's name asks for: the entry by its schedule id and the day by its date, b
 from get_training_readiness's calendar ("Saturday" is the Saturday listed there).
 The athlete decides: make the change even where you would not, and say in the
 card what its coach: lines say; a better change goes in the verdict as a
-suggestion, never into the proposal. Add its "proposal"."""
+suggestion, never into the proposal. Add its "proposal", and say the change is
+ready for them to put on the watch with the button - not that it is done."""
 
 
 def _mtime_utc(path) -> str | None:

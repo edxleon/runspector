@@ -495,8 +495,10 @@ export function renderProposal(p, opts = {}) {
   // failed is applied AND has sessions waiting. Showing the pill there took
   // away the only button that could add them.
   const pending = Number(p.pending || 0);
-  const applied = p.status === "applied" && pending === 0;
-  const partial = p.status === "applied" && pending > 0;
+  // An old day Garmin would not take off (nothing happened): another try.
+  const retryOff = Number(p.retry_off || 0);
+  const applied = p.status === "applied" && pending === 0 && !retryOff;
+  const partial = p.status === "applied" && (pending > 0 || retryOff > 0);
   const can = opts.canApply !== false;
   const warn = (p.warnings || []).map(w => `<div class="note proposal-warn">! ${esc(w)}</div>`).join("");
   const ids = Array.isArray(p.workouts) ? p.workouts : [];
@@ -516,7 +518,8 @@ export function renderProposal(p, opts = {}) {
                  can ? "" : " disabled"}
                title="Take it off the Garmin calendar - the workout stays in your library">
          ${change ? "Undo the change" : "Take off watch"}</button>`;
-  const label = partial ? `Put the remaining ${esc(pending)} on watch`
+  const label = partial && !pending ? "Take the old day off"
+    : partial ? `Put the remaining ${esc(pending)} on watch`
     : removing ? "Take it off the watch" : change ? "Put the change on watch" : "Put on watch";
   // A change half done - the old day off, the new session not up - can be
   // tried again AND taken back (review: it offered no way back).
@@ -533,7 +536,7 @@ export function renderProposal(p, opts = {}) {
                title="${change ? "Change your Garmin calendar as listed" : `Upload to Garmin, schedule ${
                  week ? `${esc(p.days)} sessions from` : "for"} ${esc(p.day || "the day")}, push to the watch`}">
          ${label}</button>${
-           (partial && ids.length) || tookOff ? undo : ""}${
+           (partial && (ids.length || retryOff)) || tookOff ? undo : ""}${
            can ? "" : `<span class="note">${
              opts.applyHint ? esc(opts.applyHint) : "needs a Garmin login"}</span>`}`;
   // The safety net, next to the button that writes: what changes, and that

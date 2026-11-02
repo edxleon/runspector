@@ -1012,12 +1012,16 @@ function weekPanelHtml(days, nowIso) {
   const madeHtml = made.length
     ? `<div class="plan-made">${made.map(c => renderProposal(c, { canApply: can, applyHint: hint }))
         .join("")}</div>` : "";
+  // The server's copy wins once there is one: it knows what the apply did
+  // (round 2: a stale copy hid the undo of a half-done move).
+  const fresh = (D().week_changes || []).find(c => c.id === planEdit.proposal?.id);
+  const shown = planEdit.proposal && (fresh ? { ...planEdit.proposal, ...fresh } : planEdit.proposal);
   const cell = planEdit.day && days.find(t => t.day === planEdit.day);
-  if (!cell) return madeHtml;
+  if (!cell) return `${madeHtml}${shown ? renderProposal(shown, { canApply: can, applyHint: hint }) : ""}`;
   return `${madeHtml}${dayPanelHtml(cell, { todayIso: nowIso })}${
     planEdit.busy ? `<div class="note">Asking the coach…</div>` : ""}${
     planEdit.error ? `<div class="note proposal-warn">! ${esc(planEdit.error)}</div>` : ""}${
-    planEdit.proposal ? renderProposal(planEdit.proposal, { canApply: can, applyHint: hint }) : ""}`;
+    shown ? renderProposal(shown, { canApply: can, applyHint: hint }) : ""}`;
 }
 
 function renderWeek() {

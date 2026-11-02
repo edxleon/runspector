@@ -103,9 +103,9 @@ export function dayPanelHtml(cell, { todayIso }) {
     .join("");
   const add = canChange && !(cell.planned || []).length
     ? `<div class="plan-actions plan-add"><span>Add a run:</span>
-         <select data-plan-add-kind aria-label="Kind">${kindOptions("easy")}</select>
+         <select data-plan-add-kind="${esc(day)}" aria-label="Kind">${kindOptions("easy")}</select>
          <label>Minutes <input type="number" min="10" max="300" step="5" inputmode="numeric"
-           data-plan-add-minutes value="30"></label>
+           data-plan-add-minutes="${esc(day)}" value="30"></label>
          <button type="button" class="btn btn-quiet" data-plan-add="${esc(day)}">Add</button></div>`
     : "";
   const why = past ? `<div class="note">This day has passed - change what lies ahead.</div>`

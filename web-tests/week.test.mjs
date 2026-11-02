@@ -79,3 +79,10 @@ test("dayPanelHtml: an empty day ahead offers a run; a day past and a run done o
   assert.match(ran, /run is done/);
   assert.doesNotMatch(ran, /data-plan-(move|change|remove|add)=/);
 });
+
+test("dayPanelHtml: the fields to add a run belong to their day", () => {
+  // Round 2: picked on Thursday, they turned up on the next day opened.
+  const html = dayPanelHtml({ day: "2026-11-05", planned: [], done: [] }, { todayIso: "2026-11-02" });
+  assert.match(html, /data-plan-add-kind="2026-11-05"/);
+  assert.match(html, /data-plan-add-minutes="2026-11-05"/);
+});

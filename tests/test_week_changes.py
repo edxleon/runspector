@@ -515,3 +515,103 @@ def test_a_session_left_as_it_is_is_no_change(store, today):
     with pytest.raises(ValueError, match="as it is"):
         plan.propose_change(store, [{"schedule_id": 12, "action": "change", "minutes": 24,
                                      "kind": "easy"}], today=today)
+
+
+# ── round 2 ──────────────────────────────────────────────────────────────────
+
+class _UnscheduleOnceDown(FakeGarmin):
+    def unschedule_workout(self, scheduled_workout_id):
+        if not self.data.get("refused"):
+            self.data["refused"] = True
+            raise ConnectionRefusedError("garmin refused")
+        return super().unschedule_workout(scheduled_workout_id)
+
+
+def test_a_move_whose_old_day_would_not_come_off_can_be_tried_again(store, today, monkeypatch):
+    """Round 2: the Friday session went up, Saturday's removal was refused -
+    "apply again to retry" then answered "already applied", and Saturday
+    stayed."""
+    monday = _the_return_week(store, today)
+    sat, fri = monday + timedelta(days=5), monday + timedelta(days=4)
+    p = plan.propose_change(store, [{"schedule_id": 16, "action": "move", "day": fri.isoformat()}],
+                            today=today)
+    fake = _UnscheduleOnceDown(schedule={16: {"workoutId": 4016, "date": sat.isoformat()}})
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: fake)
+    app = _app(store)
+    out, code = app.apply_proposal({"proposal_id": p["id"]})
+    assert 16 in fake.data["schedule"]
+    assert out["proposal"]["retry_off"] == 1, out
+    out, code = app.apply_proposal({"proposal_id": p["id"]})
+    assert code == 200 and 16 not in fake.data["schedule"], (code, out)
+
+
+def test_the_apply_answer_carries_what_the_page_needs(store, today, monkeypatch):
+    """Round 2: apply's answer had no `taken_off`, so the open panel kept a
+    stale copy without the undo of a half-done move."""
+    monday = _the_return_week(store, today)
+    p = plan.propose_change(store, [{"schedule_id": 11, "action": "remove"}], today=today)
+    fake = FakeGarmin(schedule={11: {"workoutId": 4011, "date": monday.isoformat()}})
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: fake)
+    out, code = _app(store).apply_proposal({"proposal_id": p["id"]})
+    assert out["proposal"]["taken_off"] == 1 and out["proposal"]["change"] is True, out
+
+
+def test_a_second_copy_taken_off_leaves_the_first_ones_record(store, today, monkeypatch):
+    """Round 2: the athlete scheduled one of the app's workouts a second time in
+    Garmin Connect and took that copy out - the original's record was wiped."""
+    monday = _the_return_week(store, today)
+    sat = monday + timedelta(days=5)
+    # The same workout (4016) a second time, on Sunday, as calendar entry 17.
+    _calendar(store, today, [(11, monday, "Easy", True), (12, monday + timedelta(days=1), "Easy", True),
+                             (16, sat, "Easy", True)])
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(sid, d, workout_id=4000 + w, title="Easy", sport="running")
+         for sid, d, w in ((11, monday, 11), (12, monday + timedelta(days=1), 12), (16, sat, 16),
+                           (17, sat + timedelta(days=1), 16))],
+        today - timedelta(days=7), today + timedelta(days=14))
+    p = plan.propose_change(store, [{"schedule_id": 17, "action": "remove"}], today=today)
+    fake = FakeGarmin(schedule={17: {"workoutId": 4016, "date": (sat + timedelta(days=1)).isoformat()}})
+    plan.apply(store, fake, p["id"], today=today)
+    rec = {w["workout_id"]: w["schedule_id"] for w in store.own_workouts()}
+    assert rec[4016] == 16, "the original entry's record stands"
+
+
+def test_a_removal_that_did_not_happen_says_which_and_why(store, today):
+    monday = _the_return_week(store, today)
+    p = plan.propose_change(store, [{"schedule_id": 12, "action": "remove"}], today=today)
+
+    class Unclear(FakeGarmin):
+        def unschedule_workout(self, sid):
+            raise TimeoutError("read timed out")
+
+    fake = Unclear(schedule={12: {"workoutId": 4012, "date": (monday + timedelta(days=1)).isoformat()}})
+    out = plan.apply(store, fake, p["id"], today=today)
+    assert "unclear" in out["error"] and "gone already" not in out["error"], out["error"]
+
+
+def test_a_change_undone_after_its_day_leaves_that_day_alone(store, today, monkeypatch):
+    """Round 2: undo took a past calendar entry off, and the change stayed
+    listed under the strip with an undo that did nothing."""
+    monday = _the_return_week(store, today)
+    fri, sat = monday + timedelta(days=4), monday + timedelta(days=5)
+    p = plan.propose_change(store, [{"schedule_id": 16, "action": "move", "day": fri.isoformat()}],
+                            today=today)
+    fake = FakeGarmin(schedule={16: {"workoutId": 4016, "date": sat.isoformat()}})
+    plan.apply(store, fake, p["id"], today=today)
+    placed = plan.read(p["id"], store)["items"][0]["schedule_id"]
+    later = sat + timedelta(days=1)
+    out = plan.undo(store, fake, p["id"], today=later)
+    assert placed in fake.data["schedule"], "Friday has passed: left as it was"
+    monkeypatch.setattr(plan.paths, "today", lambda: later)
+    assert plan.changes_on_calendar(store) == [], "a change in the past is not offered for undo"
+    assert out
+
+
+def test_one_unreadable_proposal_does_not_take_the_page_down(store, today):
+    from runspector import paths
+
+    _the_return_week(store, today)
+    (paths.proposals_dir() / "p-20261102-000000-dead.json").write_text(
+        '{"id": "p-20261102-000000-dead", "change": true, "items": [{"day": 5}], '
+        '"replaces": [{"day": null}], "created": "9999"}', encoding="utf-8")
+    assert _app(store)._change_views() == []

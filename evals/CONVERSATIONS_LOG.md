@@ -6,3 +6,5 @@
 | 2026-11-02 11:41 | the CLI's default | 17/17 | - | judge question of the summary step narrowed |
 | 2026-11-02 12:29 | the CLI's default | 17/17 | - | release check: shipped prompt 35fd322c |
 | 2026-11-02 13:54 | the CLI's default | 17/17 | - | next steps not repeated, rest day planner |
+| 2026-11-02 15:07 | the CLI's default | 18/19 | the-week-changed-in-words | week changes: tap and words, after the deep review |
+| 2026-11-02 15:20 | the CLI's default | 19/19 | - | week changes: final, after round 2 |

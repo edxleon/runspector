@@ -131,9 +131,10 @@ _WD = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 def _proposal_fails(srv: Server, card: dict, want: dict) -> list[str]:
     """The athlete's change the card filed (roadmap 19), against what they
     asked: `adds`/`takes_off` - weekdays that must get a session / lose an
-    entry; `minutes` - weekday -> length of the session put there; `kinds` -
-    weekday -> its kind; `within_days` - every day it touches lies this close
-    to today ("Saturday" is this Saturday)."""
+    entry; `only` - and no other weekday is touched; `minutes` - weekday ->
+    length of the session put there; `kinds` - weekday -> its kind;
+    `within_days` - every day it touches lies this close to today
+    ("Saturday" is this Saturday)."""
     import datetime as dt
 
     pid = card.get("proposal")
@@ -154,6 +155,11 @@ def _proposal_fails(srv: Server, card: dict, want: dict) -> list[str]:
     for d, k in (want.get("kinds") or {}).items():
         if (items.get(d) or {}).get("spec", {}).get("kind") != k:
             fails.append(f"{d} is {(items.get(d) or {}).get('spec', {}).get('kind')}, asked {k}")
+    if want.get("only"):
+        named = set(want.get("adds") or []) | set(want.get("takes_off") or [])
+        extra = (set(items) | gone) - named
+        if extra:
+            fails.append(f"it also changes {sorted(extra)}, which the athlete did not name")
     if "within_days" in want:
         today = dt.date.today()
         days = [dt.date.fromisoformat(x["day"]) for x in (p.get("items") or []) + (p.get("replaces") or [])]
