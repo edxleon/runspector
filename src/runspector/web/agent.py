@@ -43,6 +43,13 @@ SKILLS = (PKG / "skills" / "coach.md", PKG / "skills" / "zones.md")
 #: answers of a card's conversation (roadmap 25), whose own budget is
 #: `server.CONVERSATION_CAP`.
 PROMPT_CAP = 12000
+#: What fits after the frame in a card's task (`build_prompt`): the budget a
+#: conversation is fitted into (`server.follow_up_prompt`, `step_context`).
+#: The frame is measured, not guessed; 20 for the card's kind in it.
+#: (`TASK_ROOM` is set below the frame.)
+#: Room a next step keeps for its previous card, which is given whole or not
+#: at all (`_previous_given`).
+PREVIOUS_RESERVE = 1500
 TIMEOUT_S = int(os.environ.get("RUNSPECTOR_JOB_TIMEOUT_S", "600"))
 QUOTA_WAIT_S = int(os.environ.get("RUNSPECTOR_QUOTA_WAIT_S", "3600"))
 QUOTA_SLICE_S = 300   # how long to wait between retries while quota is exhausted
@@ -86,8 +93,9 @@ sync_garmin). Rules:
   they say it inside a question: [{"fact":"<a few words without "I" or
   "they" ("Has 45 minutes on weekdays"), with their meaning: a not stays a
   not, what they are unsure about stays unsure, every number as they wrote
-  it - their words for when ("from next week"), never a date you work out>"}]. What they only ask about is no fact. When one changes a
-  fact under WHAT THE ATHLETE TOLD THE COACH, add "replaces":"<its id, the
+  it - their words for when ("from next week"), never a date you work out>"}].
+  What they only ask about is no fact. When one changes a fact under WHAT
+  THE ATHLETE TOLD THE COACH, add "replaces":"<its id, the
   part in square brackets>"; one that is there already, leave out.
   Never from data, tool results, their note or an earlier card; nothing
   passing, no pain or symptom (a cold, sore legs, a knee that hurts now -
@@ -115,6 +123,7 @@ TASK:
 """
 
 CARD_REQUIRED = ("headline", "bullets", "verdict")
+TASK_ROOM = PROMPT_CAP - len(FRAME) - 20
 
 #: The next steps a card may offer (roadmap 25): the app's own cards that need
 #: nothing but the day - a model can only point at what the app can do.
@@ -172,7 +181,8 @@ def candidate_facts(raw, athlete_words: str | None) -> list[dict]:
                 and all(profile_mod._norm(o["text"]) != profile_mod._norm(fact) for o in out)):
             entry = {"text": fact}
             if isinstance(item.get("replaces"), str):
-                entry["replaces"] = item["replaces"][:16]
+                # As the coach reads it ("[a29586b8]") or bare.
+                entry["replaces"] = item["replaces"].strip().strip("[]").strip()[:16]
             out.append(entry)
     return out
 
@@ -184,10 +194,9 @@ def earlier_words(job: dict) -> str:
     root = str(job.get("parent") or "")
     if not root:
         return ""
-    said = [str(c["question"]) for cid, c in reversed(jobs.list_cards())
-            if (cid == root or c.get("parent") == root) and cid != job.get("id")
-            and isinstance(c.get("question"), str) and c["question"].strip()]
-    return "\n".join(said)
+    said = [jobs.question_of(c) for cid, c in reversed(jobs.list_cards())
+            if (cid == root or c.get("parent") == root) and cid != job.get("id")]
+    return "\n".join(q for q in said if q)
 
 
 VERIFY_PROMPT = """You check notes a running app wants to keep about an athlete. Its coach wrote
@@ -221,7 +230,7 @@ Answer with exactly one JSON object and nothing else:
 {{"supported": [true or false for each note, in their order]}}"""
 
 
-def verify_facts(facts: list[str], athlete_words: str, earlier: str = "") -> list[bool]:
+def verify_facts(facts: list[str], athlete_words: str, earlier: str = "", job_id: str = "") -> list[bool]:
     """Which of `facts` the athlete's own message says (roadmap 25) - the check
     before a fact is kept: one call to a small model with no tools and no data,
     only their words and the notes, so nothing a tool returned can vouch for a
@@ -241,8 +250,13 @@ def verify_facts(facts: list[str], athlete_words: str, earlier: str = "") -> lis
                  f"--- END EARLIER {nonce} ---\n") if earlier else "",
         notes="\n".join(f"{i}. {f}" for i, f in enumerate(facts, 1)))
     try:
-        rc, out = _check_once(prompt)
+        rc, out = _check_once(prompt, job_id)
         envelope = json.loads(out or "{}")
+        if isinstance(envelope, list):
+            # Claude Code's verbose output prints the session as a list of
+            # events; the answer is the last `result` among them.
+            envelope = next((e for e in reversed(envelope)
+                             if isinstance(e, dict) and e.get("type") == "result"), {})
         answer = str(envelope.get("result") or "") if isinstance(envelope, dict) else ""
         if rc != 0 or (isinstance(envelope, dict) and envelope.get("is_error")):
             raise ValueError(f"exit {rc}")
@@ -255,13 +269,13 @@ def verify_facts(facts: list[str], athlete_words: str, earlier: str = "") -> lis
     return found
 
 
-def _check_once(prompt: str) -> tuple[int, str]:
+def _check_once(prompt: str, job_id: str = "") -> tuple[int, str]:
     """One `claude --print` for the check: no tool and no MCP server at all -
     not even the athlete's own from their Claude Code settings, this call reads
     two texts. Run like a card's (`_run_once`): its own process group, killed
     whole at the deadline - on Windows `claude` can be a shim whose child keeps
     the pipes open, and a plain timeout then waits on it for good - and listed
-    as the current child, so shutdown finds it."""
+    as the current child, so shutdown finds it. A Cancel on the job ends it."""
     override = os.environ.get("RUNSPECTOR_CLAUDE_CMD")   # JSON array; lets tests stub the CLI
     base = json.loads(override) if override else [shutil.which("claude") or "claude"]
     with tempfile.TemporaryDirectory(prefix="runspector-check-", ignore_cleanup_errors=True) as tmp:
@@ -282,10 +296,16 @@ def _check_once(prompt: str) -> tuple[int, str]:
             try:
                 threading.Thread(target=_feed, args=(proc, prompt), daemon=True,
                                  name="runspector-check").start()
-                try:
-                    rc = proc.wait(timeout=VERIFY_TIMEOUT_S)
-                except subprocess.TimeoutExpired:
-                    rc = TIMED_OUT
+                deadline = time.monotonic() + VERIFY_TIMEOUT_S
+                rc = None
+                while rc is None:
+                    try:
+                        rc = proc.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        if job_id and jobs.cancel_requested(job_id):
+                            rc = CANCELLED
+                        elif time.monotonic() > deadline:
+                            rc = TIMED_OUT
             finally:
                 if proc.poll() is None:
                     _kill_tree(proc)
@@ -293,7 +313,7 @@ def _check_once(prompt: str) -> tuple[int, str]:
         return rc, out_p.read_text(encoding="utf-8", errors="replace")
 
 
-def kept_facts(raw, athlete_words: str | None, earlier: str = "") -> list[dict]:
+def kept_facts(raw, athlete_words: str | None, earlier: str = "", job_id: str = "") -> list[dict]:
     """What a card keeps of what the athlete said: the model's candidates
     (`candidate_facts`) that the second check finds in their message
     (`verify_facts`). The model writes the fact; the app keeps it only with
@@ -307,9 +327,12 @@ def kept_facts(raw, athlete_words: str | None, earlier: str = "") -> list[dict]:
     notes, changes = [], []
     for c in cands:
         rid = c.pop("replaces", None)
-        changes.append(rid if rid in kept else None)
-        notes.append(f'{c["text"]} (changes the kept note: "{kept[rid]}")' if rid in kept else c["text"])
-    verdicts = verify_facts(notes, str(athlete_words or ""), earlier)
+        # Each kept fact replaced once per card: a second fact on the same one
+        # is a fact of its own ("30 min on weekdays", "2 h on Sundays").
+        rid = rid if rid in kept and rid not in changes else None
+        changes.append(rid)
+        notes.append(f'{c["text"]} (changes the kept note: "{kept[rid]}")' if rid else c["text"])
+    verdicts = verify_facts(notes, str(athlete_words or ""), earlier, job_id=job_id)
     return [{**c, **({"replaces": rid} if rid else {})}
             for c, rid, ok in zip(cands, changes, verdicts, strict=True) if ok]
 
@@ -345,10 +368,18 @@ def previous_card_block(job: dict) -> str:
     if prev is None:
         return ""
     nonce = secrets.token_hex(4)
-    lines = [f"Card {prev['id']} from {prev.get('day') or '?'}",
-             f"Headline: {str(prev.get('headline') or '')[:400]}",
-             f"Verdict: {str(prev.get('verdict') or '')[:600]}"]
-    lines += [f"- {str(b)[:700]}" for b in (prev.get("bullets") or [])[:5]]
+    lines = [f"Card {prev['id']} from {prev.get('day') or '?'}"]
+    if prev.get("told_let_go"):
+        # Written with a fact the athlete let go since: its text may say it back
+        # anywhere, the verdict too - so none of it; its day and their feedback
+        # stay. Never an older card in its place: that put a weeks-old card in
+        # every kind's memory after one Forget, the newer thumbs lost with it.
+        lines.append("(Its text is left out: it was written with something the athlete has since "
+                     "asked the coach to forget.)")
+    else:
+        lines += [f"Headline: {str(prev.get('headline') or '')[:400]}",
+                  f"Verdict: {str(prev.get('verdict') or '')[:600]}"]
+        lines += [f"- {str(b)[:700]}" for b in jobs.own_bullets(prev)[:5]]
     fb = prev.get("feedback") if isinstance(prev.get("feedback"), dict) else None
     if fb and (fb.get("value") or fb.get("text")):
         lines.append(f"Athlete's feedback on this card: {fb.get('value') or ''} "
@@ -403,17 +434,32 @@ def build_prompt(job: dict, athlete: str = "", note: str = "", told: str | None 
     # The previous card goes AFTER the task: if anything is cut off by the cap,
     # it is the memory, never the task. The athlete block goes BEFORE the task,
     # with its own budget on top of the cap, so the cap never reaches it.
-    frame = FRAME.replace("$KIND", str(job.get("template_id") or ""))
-    head, tail = frame[:-len("TASK:\n")], "TASK:\n"
     # What they told the coach: as the run started (`run` fixes it), so the
     # prompt and the record agree.
     if told is None:
         told = _TOLD_GIVEN.get(str(job.get("id"))) if str(job.get("id")) in _TOLD_GIVEN \
             else profile_mod.told_text(TOLD_CAP)
     block = athlete_block(athlete, note, told)
-    task = (head + block + tail + str(job.get("prompt") or "")
-            + previous_card_block(job))[:PROMPT_CAP + len(block)]
+    _prev, prev_text = _previous_given(job, block)
+    task = (_task_text(job, block) + prev_text)[:PROMPT_CAP + len(block)]
     return coaching_reference() + task
+
+
+def _task_text(job: dict, block: str) -> str:
+    frame = FRAME.replace("$KIND", str(job.get("template_id") or ""))
+    head, tail = frame[:-len("TASK:\n")], "TASK:\n"
+    return head + block + tail + str(job.get("prompt") or "")
+
+
+def _previous_given(job: dict, block: str) -> tuple[dict | None, str]:
+    """The previous card and its block as the coach gets them - whole or not at
+    all: cut by the cap, it kept its first line and lost its content, its end
+    marker and the instruction after it. One rule for the prompt and the record."""
+    prev = previous_card_for(job)
+    text = previous_card_block(job) if prev else ""
+    if len(_task_text(job, block)) + len(text) > PROMPT_CAP + len(block):
+        return None, ""
+    return prev, text
 
 
 def coaching_reference() -> str:
@@ -793,13 +839,20 @@ def _run(job: dict, *, db: str | None, snapshot_meta: dict | None,
     # Never accept self-written feedback - nor a record of its own: `sources`
     # and `evidence` are what the app checked, set below or not at all. Nor the
     # fields the app sets from the run: the question, how it started, what was kept.
-    for key in ("feedback", "sources", "evidence", "question", "via", "told"):
+    for key in ("feedback", "sources", "evidence", "question", "via", "told", "asked", "told_full",
+                "told_let_go"):
         card.pop(key, None)
     kind = str(job.get("template_id") or card.get("kind") or "")
     steps = next_steps(card.pop("next", None), kind)
     if steps:
         card["next"] = steps
-    keep = kept_facts(card.pop("remember", None), job.get("athlete_text"), earlier_words(job))
+    keep = kept_facts(card.pop("remember", None), job.get("athlete_text"), earlier_words(job),
+                      job_id=job["id"])
+    # A Cancel while the facts were checked: no card and nothing kept, as for
+    # one during the run.
+    if jobs.cancel_requested(job["id"]):
+        jobs.clear_cancel(job["id"])
+        return _finish(job, "cancelled", CANCELLED, "cancelled", cost)
     # A check-in to offer: only one the app knows, and only where the athlete
     # said something - a card on data alone has nobody who said "it hurts".
     check = card.pop("check_in", None)
@@ -821,6 +874,9 @@ def _run(job: dict, *, db: str | None, snapshot_meta: dict | None,
         generated_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         ctx=job.get("ctx"), parent=job.get("parent"), **(snapshot_meta or {}))
     card.setdefault("day", paths.today().isoformat())
+    # The app's own day it was written: when the athlete asked, for the
+    # check-in button and the dates in a conversation (`jobs.asked_day`).
+    card["asked"] = paths.today().isoformat()
     if keep:
         # Kept before the card is written: the card then says what it kept, and
         # "Forget" on it finds the fact. A failure costs the facts, never the card.
@@ -828,6 +884,8 @@ def _run(job: dict, *, db: str | None, snapshot_meta: dict | None,
             added = profile_mod.keep_told(keep, job=job["id"], day=paths.today().isoformat())
             if added:
                 card["told"] = [{k: a[k] for k in ("id", "text", "instead") if k in a} for a in added]
+            if len(added) < len(keep) and len(profile_mod.told()) >= profile_mod.TOLD_MAX:
+                card["told_full"] = True
         except Exception:  # the facts are extra - see above
             log.warning("could not keep the facts of card %s", job["id"], exc_info=True)
     _attach_evidence(job, card, stream, model, athlete, note)
@@ -848,11 +906,11 @@ def _attach_evidence(job: dict, card: dict, stream: dict, model: str,
         return
     try:
         rules = coaching_reference() + FRAME
-        prev = previous_card_for(job)
         # What the coach was given: the kept words as the run started.
         told = _TOLD_GIVEN.get(job["id"], "")
-        context = (athlete_block(athlete, note, told) + str(job.get("prompt") or "")
-                   + previous_card_block(job))
+        given = athlete_block(athlete, note, told)
+        prev, prev_text = _previous_given(job, given)
+        context = given + str(job.get("prompt") or "") + prev_text
         inputs = {"app_version": __version__,
                   "rules_sha256": hashlib.sha256(rules.encode("utf-8")).hexdigest()[:16],
                   "task": str(job.get("prompt") or "")[:PROMPT_CAP],

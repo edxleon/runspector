@@ -495,3 +495,21 @@ test("a card offers the check-in the athlete named as the Today tab's own button
   assert.match(renderCard(card, { open: true }), /data-check-in="sore"/);
   assert.doesNotMatch(renderCard({ ...card, check_in: null }, { open: true }), /data-check-in=/);
 });
+
+test("the athlete's question shows as they typed it - 5*3 min is no emphasis", () => {
+  const card = { id: "j-1", kind: "ask", question: "Can I do 5*3 min and 4*4 min this week?",
+                 headline: "h", verdict: "v", bullets: ["b"] };
+  assert.match(renderCard(card, { open: true }), /You asked: Can I do 5\*3 min and 4\*4 min this week\?/);
+});
+
+test("the question field says to wait for an answer on its way, and stays open", async () => {
+  const { renderFollowUp } = await import("../src/runspector/web/static/cards.js");
+  const waiting = renderFollowUp("j-1", { job_id: "j-2" }, 1);
+  assert.match(waiting, /ask on when it is here/);
+  assert.doesNotMatch(waiting, /disabled/, "the server turns a question away - the field never stays shut");
+});
+
+test("a card says when the list for the coach is full", () => {
+  assert.match(renderTold([], true), /Not noted<\/span>\s*your list for the coach is full/);
+  assert.equal(renderTold([], false), "");
+});

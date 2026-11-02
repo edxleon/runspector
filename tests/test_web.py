@@ -156,8 +156,10 @@ def test_prompt_cap_cuts_the_memory_never_the_task():
     job = jobs.new_job(task, title="t", kind="week-review")
     prompt = agent.build_prompt(job)
     assert task in prompt
-    assert "--- END PREVIOUS CARD" not in prompt              # the tail fell to the cap
-    assert len(prompt) == len(agent.coaching_reference()) + agent.PROMPT_CAP
+    # Whole or not at all: cut by the cap, the block kept its first line and
+    # lost its content, its end marker and the instruction after it.
+    assert "--- PREVIOUS CARD" not in prompt
+    assert len(prompt) <= len(agent.coaching_reference()) + agent.PROMPT_CAP
 
 
 # ── command: an allowlist, not a denylist ────────────────────────────────────

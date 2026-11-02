@@ -503,7 +503,11 @@ round, not about someone else, not a pain of today; any failure keeps nothing. A
 one kept before takes its place - only when the check, shown that one too, finds the message changes
 it - and keeps its id, so one Forget reaches every copy; the same fact said again moves to the newest.
 The profile holds the fact, not the question: the You tab shows the question from its card, and it
-goes when the card goes. The answer says
+goes when the card goes. A full list (24) takes no new fact and the card says so; it never pushes an
+old one out. After a Forget, a card that was given the fact is still the previous card of its kind,
+by its day and the athlete's feedback only. A conversation keeps the athlete's every question in the
+coach's context, fitted into what the prompt has room for, and takes the next question when its
+last answer is there. The answer says
 "Noted for later" with a way to undo it, the You tab lists each fact with the question it comes from
 and its date and lets them go one by one, and the coach reads them before every answer like the
 athlete's note. Two first versions matched the athlete's words by rule instead: whole sentences

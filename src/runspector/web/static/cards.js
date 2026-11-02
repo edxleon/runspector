@@ -382,7 +382,7 @@ export function renderCard(c, opts = {}) {
   };
   // An answer in a conversation says what it answers - the athlete's own question.
   const asked = c.question
-    ? `<span class="card-question">You asked: ${esc(truncate(textPlain(c.question), 300))}</span>` : "";
+    ? `<span class="card-question">You asked: ${esc(truncate(String(c.question), 300))}</span>` : "";
   const head = `<button type="button" class="card-head" data-card="${esc(id)}" aria-expanded="${open}">
       ${asked}<span class="card-meta">${esc(title)}${refTxt ? " · " + esc(refTxt) : ""}${
         meta[0] ? " · " + esc(meta[0]) : ""}</span>
@@ -463,7 +463,7 @@ export function renderCard(c, opts = {}) {
     : "";
   // What the card kept stands outside the head and its fold: never kept
   // without being seen, open or closed (roadmap 25).
-  const told = renderTold(c.told);
+  const told = renderTold(c.told, c.told_full);
   return `<article class="coach-card${c.parent ? " card-child" : ""}"
              data-card-id="${esc(id)}">${head}${told ? `<div class="card-told-wrap">${told}</div>` : ""}${
              body}${childrenHtml}${ask}</article>`;
@@ -596,10 +596,15 @@ function renderFeedback(id, fb) {
   </div>`;
 }
 
-function renderFollowUp(id, pending, answers = 0) {
+/** The field under a conversation. Each answer is written with the
+ *  conversation as it stands when it is asked, so the server turns a question
+ *  away while an answer is on its way (`answer_pending`) and the note says to
+ *  wait - the field itself stays open: shut, it stayed shut for 45 minutes
+ *  after a run that failed or was cancelled. */
+export function renderFollowUp(id, pending, answers = 0) {
   return `<div class="card-followup card-thread-ask" data-fu-card="${esc(id)}">
     ${pending ? `<div class="note card-followup-pending">The answer arrives below${
-       pending.job_id ? ` (${esc(pending.job_id)})` : ""} - the run is listed in the job strip.</div>` : ""}
+       pending.job_id ? ` (${esc(pending.job_id)})` : ""} - ask on when it is here.</div>` : ""}
     <input type="text" class="fu-text" data-fu-text maxlength="1000"
            placeholder="${answers ? "Ask on…" : "Ask about this card…"}" aria-label="A question about this card">
     <button type="button" class="fu-send" data-fu-send>Ask</button>
@@ -646,10 +651,12 @@ export function renderNext(id, next, root = id) {
 /** What the card noted from the athlete's words - as the server keeps it now
  *  (a fact let go is no longer listed), and what it took the place of - with
  *  a way to let each go. The question it comes from is on the You tab. */
-export function renderTold(told) {
+export function renderTold(told, full = false) {
   const items = (Array.isArray(told) ? told : []).filter(t => t && t.id && t.text);
-  if (!items.length) return "";
-  return `<div class="card-told">${items.map(t =>
+  const fullNote = full === true ? `<div class="card-told-one"><span class="card-told-k">Not noted</span>
+      your list for the coach is full - let one go on the You tab, then say it again.</div>` : "";
+  if (!items.length) return fullNote ? `<div class="card-told">${fullNote}</div>` : "";
+  return `<div class="card-told">${fullNote}${items.map(t =>
     `<div class="card-told-one"><span class="card-told-k">Noted for later</span> ${esc(t.text)}${
       t.instead ? ` <span class="note">(instead of: ${esc(t.instead)})</span>` : ""}
       <button type="button" class="linkish" data-forget="${esc(t.id)}"
@@ -926,7 +933,7 @@ export async function forgetTold(entryId, btn) {
   if (btn) btn.disabled = true;
   try {
     await apiPost("/api/profile/forget", { id: entryId });
-    toast("Let go - the coach no longer reads it.");
+    toast("Let go - new conversations no longer get it. One that already used it keeps it until you delete that card.");
     await context.onChanged?.();
   } catch (e) {
     if (btn) btn.disabled = false;

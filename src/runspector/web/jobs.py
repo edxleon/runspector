@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import secrets
 from datetime import datetime, timedelta
@@ -295,6 +296,33 @@ def conversation_root(card_id: str) -> str:
     return _roots(list_cards()).get(card_id, card_id)
 
 
+def own_bullets(card: dict | None) -> list:
+    """A card's points without those it marked [you]: what the athlete said -
+    their note, a check-in, a kept fact - said back. A later card reads those
+    from where they are kept now; carried on from an old card, a fact let go
+    reached every card after it."""
+    c = card or {}
+    bullets = c.get("bullets") if isinstance(c.get("bullets"), list) else []
+    sources = c.get("sources") if isinstance(c.get("sources"), list) else []
+    return [b for i, b in enumerate(bullets)
+            if not (i < len(sources) and isinstance(sources[i], dict) and sources[i].get("kind") == "you")]
+
+
+def question_of(card: dict | None) -> str | None:
+    """The athlete's question a card answers - only on a card this version
+    wrote (`asked`, set by the app with it): an older one kept whatever a
+    model put under `question`, and that is no word of the athlete's."""
+    q = (card or {}).get("question")
+    return q.strip() if (card or {}).get("asked") and isinstance(q, str) and q.strip() else None
+
+
+def asked_day(card: dict | None) -> str:
+    """The day a card was written, by the app's clock (`asked`) - not its
+    `day`, which on a run's card is the run's date."""
+    c = card or {}
+    return str(c.get("asked") or c.get("generated_at") or c.get("day") or "?")[:10]
+
+
 def running_in(root: str) -> int:
     """Answers on their way in a conversation: queued or running jobs on it."""
     return sum(1 for j in read_jobs(100) if j.get("status") in ACTIVE and j.get("parent") == root)
@@ -305,14 +333,16 @@ def scrub_told(entry: dict) -> None:
     records of what later runs were given. The conversation it came from stays
     until its card is deleted - letting a fact go is not deleting a question."""
     words = str(entry.get("text") or "")
-    card_id = str(entry.get("job") or "")
-    card = read_card(card_id)
-    if card and isinstance(card.get("told"), list):
-        card["told"] = [t for t in card["told"]
-                        if not (isinstance(t, dict) and t.get("id") == entry.get("id"))]
-        if not card["told"]:
-            card.pop("told")
-        write_card(card_id, card)
+    # Off every card that noted it (each version of it, by its id) - and those
+    # are marked like the cards that were given it: their text may say it back.
+    for cid, card in list_cards():
+        told = card.get("told") if isinstance(card.get("told"), list) else []
+        if any(isinstance(t, dict) and t.get("id") == entry.get("id") for t in told):
+            card["told"] = [t for t in told if not (isinstance(t, dict) and t.get("id") == entry.get("id"))]
+            if not card["told"]:
+                card.pop("told")
+            card["told_let_go"] = True
+            _keep_writing(lambda cid=cid, card=card: card_path(cid).exists() and write_card(cid, card))
     if not words:
         return
     from .. import evidence, profile
@@ -341,7 +371,13 @@ def scrub_told(entry: dict) -> None:
                 call["result"], c = without(call.get("result"))
                 changed |= c
         if changed:
-            _write_json(p, rec)
+            _keep_writing(lambda p=p, rec=rec: _write_json(p, rec))
+            # The card that was given the fact may say it back anywhere - the
+            # verdict too: as a previous card it is given by its day only.
+            used = read_card(p.stem) if ID_RE.fullmatch(p.stem) else None
+            if used is not None and not used.get("told_let_go"):
+                used["told_let_go"] = True
+                _keep_writing(lambda cid=p.stem, c=used: card_path(cid).exists() and write_card(cid, c))
     for p in evidence.chats_dir().glob("*.jsonl"):
         try:
             rows = p.read_text(encoding="utf-8").splitlines()
@@ -359,7 +395,27 @@ def scrub_told(entry: dict) -> None:
                 changed |= c
             out.append(json.dumps(row, ensure_ascii=False, default=str))
         if changed:
-            p.write_text("\n".join(out) + "\n", encoding="utf-8")
+            # Whole or not at all: a reader (the page, the MCP process) never
+            # sees half a file; a failed replace leaves no copy behind.
+            tmp = p.with_name(p.name + ".tmp")
+
+            def swap(p=p, tmp=tmp, out=out):
+                try:
+                    tmp.write_text("\n".join(out) + "\n", encoding="utf-8")
+                    os.replace(tmp, p)
+                finally:
+                    tmp.unlink(missing_ok=True)
+            _keep_writing(swap)
+
+
+def _keep_writing(write) -> None:
+    """One file a Forget cleans; one that cannot be written (a lock, a
+    permission) is logged and the rest are still cleaned - a Forget is never
+    stopped by one file, and the fact still goes."""
+    try:
+        write()
+    except OSError:
+        log.warning("could not clean a record of a fact let go", exc_info=True)
 
 
 def public_cards(limit: int = 10) -> list[dict]:
@@ -421,17 +477,18 @@ def public_cards(limit: int = 10) -> list[dict]:
             # Roadmap 25: the athlete's question an answer is for, the next steps
             # the card offers (checked against the app's menu again), the facts
             # it kept, and whether it was started as a next step.
-            "question": _cap(c.get("question"), 1000) or None,
+            "question": _cap(question_of(c), 1000) or None,
             "next": _public_next(c.get("next")),
             "told": kept.get(cid) or None,
+            # What it would have noted, had the list for the coach not been full.
+            "told_full": c.get("told_full") is True,
             "via": "next" if c.get("via") == "next" else None,
             # A check-in the athlete can tap from the card - the app's own kinds
             # only, and only the day the card was written: a tap says it for
-            # today. By when it was WRITTEN, never its `day` - the model's,
-            # which is a run's date on a run's card.
+            # today. By `asked` - the app's day it was written - never `day`,
+            # the model's, which is a run's date on a run's card.
             "check_in": (c.get("check_in") if c.get("check_in") in logic.CHECK_IN_KINDS
-                         and str(c.get("generated_at") or "")[:10] == paths.today().isoformat()
-                         else None),
+                         and c.get("asked") == paths.today().isoformat() else None),
         })
     return out
 

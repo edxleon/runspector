@@ -43,13 +43,15 @@ _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 #: question from the card, so it goes when the card goes). Written only by a
 #: card run; never through the settings route (`validate` refuses the key).
 #: The You tab lets each go. TOLD_MAX full lines fit TOLD_CAP: every fact the
-#: You tab lists reaches the coach. TOLD_SAID_MAX: how much of the question
-#: the You tab shows.
+#: You tab lists reaches the coach. A full list takes no new fact - the card
+#: says so - and never drops an old one: the oldest is often the one that
+#: matters most ("my left knee does not like downhills"). TOLD_SAID_MAX: how
+#: much of the question the You tab shows.
 TOLD_KEY = "told"
-TOLD_MAX = 12
+TOLD_MAX = 24
 TOLD_FACT_MAX = 160
 TOLD_SAID_MAX = 300
-TOLD_CAP = 2800
+TOLD_CAP = 4800
 TOLD_RULE = ("These are facts the athlete told the coach in earlier questions, each checked against "
              "their words when it was kept; the part in square brackets is its id. Take them into "
              "account like their note, and say so when you do; where two differ, the newer one "
@@ -160,20 +162,24 @@ def keep_told(items: list[dict], *, job: str, day: str) -> list[dict]:
     said again - with the new day, at the end: the newest word counts, and an
     old copy never outranks it. Either way it keeps the old one's id, so one
     Forget reaches every line the coach was ever given of it
-    (`web/jobs.scrub_told`). The newest TOLD_MAX stay. Returns the added ones,
-    each with `instead` when it took the place of a different fact."""
+    (`web/jobs.scrub_told`). A new fact beyond TOLD_MAX is not added; a change
+    to a kept one always is. Returns the added ones, each with `instead` when
+    it took the place of a different fact."""
     import secrets
 
     with _LOCK:
         data = load()
         current = told(data)
+        before = list(current)      # what each item may replace: never one added in this call
         added = []
         for item in items:
             text = str(item.get("text") or "").strip()[:TOLD_FACT_MAX]
             if not text or any(_norm(a["text"]) == _norm(text) for a in added):
                 continue
-            gone = [e for e in current
-                    if e["id"] == item.get("replaces") or _norm(e["text"]) == _norm(text)]
+            gone = [e for e in current if e in before
+                    and (e["id"] == item.get("replaces") or _norm(e["text"]) == _norm(text))]
+            if not gone and len(current) >= TOLD_MAX:
+                continue
             current = [e for e in current if e not in gone]
             entry = {"id": gone[0]["id"] if gone else secrets.token_hex(4),
                      "text": text, "day": day, "job": job}
@@ -183,7 +189,7 @@ def keep_told(items: list[dict], *, job: str, day: str) -> list[dict]:
             current.append(entry)
             added.append(entry)
         if added:
-            data[TOLD_KEY] = current[-TOLD_MAX:]
+            data[TOLD_KEY] = current
             write(data)
         return added
 

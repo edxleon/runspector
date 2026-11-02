@@ -358,8 +358,9 @@ export function toldCard(week) {
     <div class="subhead">What you told the coach</div>
     <div class="note">When you ask the coach something and mention something lasting about yourself - your
       time on weekdays, your goal, an old injury - it notes it here, after checking it against what you
-      wrote, and reads it before every answer. Forget anything that is not right: the coach no longer
-      reads it, and the question it came from stays until you delete that card.</div>
+      wrote, and reads it before every answer. Forget anything that is not right: new conversations no
+      longer get it, and one that already used it - your question too - keeps it until you delete that
+      card.</div>
     ${rows ? `<ul class="told-list">${rows}</ul>`
            : `<div class="empty-note">Nothing yet.</div>`}
   </div>`;
