@@ -24,7 +24,8 @@
 
 defaults:
   judge_model: sonnet
-  timeout_sec: 600
+  # A card's own limit (600 s) and the check after it (120 s), and a margin.
+  timeout_sec: 780
 
 stories:
   - id: a-restart-in-german

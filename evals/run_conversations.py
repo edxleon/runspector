@@ -55,15 +55,20 @@ class Server:
         self.data = home / "demo"           # `--demo` keeps its data under <home>/demo
         env = {**os.environ, "RUNSPECTOR_HOME": str(home)}
         env.pop("RUNSPECTOR_CLAUDE_CMD", None)
+        # Its own process group, so `stop` ends the server with everything under it.
+        group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+                 else {"start_new_session": True})
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "runspector.cli", "serve", "--demo", "--no-browser", "--no-sync",
-             "--port", str(self.port)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+             "--port", str(self.port)],
+            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **group)
         for _ in range(120):
             try:
                 urllib.request.urlopen(self.base + "/", timeout=2)
                 return
             except OSError:
                 time.sleep(0.5)
+        self.stop()
         raise RuntimeError("the demo server did not come up")
 
     def post(self, path: str, body: dict) -> tuple[int, dict]:
@@ -71,9 +76,13 @@ class Server:
                                      headers={"Content-Type": "application/json", "Origin": self.base})
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
-                return r.status, json.loads(r.read() or b"{}")
+                code, raw = r.status, r.read()
         except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read() or b"{}")
+            code, raw = e.code, e.read()
+        try:
+            return code, json.loads(raw or b"{}")
+        except ValueError:               # a proxy's or a crash's page: one failed step, not the run
+            return code, {"error": raw[:200].decode("utf-8", "replace")}
 
     def read(self, *parts: str) -> dict | None:
         try:
@@ -93,12 +102,22 @@ class Server:
     def kept(self) -> list[dict]:
         return (self.read("profile.json") or {}).get("told", [])
 
+    def active(self) -> list[str]:
+        jobs = [self.read("jobs", p.name) or {} for p in (self.data / "jobs").glob("j-*.json")]
+        return [j["id"] for j in jobs if j.get("status") in ("queued", "running") and j.get("id")]
+
     def stop(self) -> None:
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+        """Cancel what still runs through the app - its worker ends a card's
+        `claude` and the fact check, which run in process groups of their own -
+        then end the server and everything under it."""
+        if self.proc.poll() is None:
+            for jid in self.active():
+                self.post(f"/api/jobs/{jid}/cancel", {})
+            end = time.monotonic() + 30
+            while self.active() and time.monotonic() < end:
+                time.sleep(1)
+        from runspector.web.agent import _kill_tree
+        _kill_tree(self.proc)
 
 
 def _answer(card: dict) -> str:

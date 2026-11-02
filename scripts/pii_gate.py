@@ -18,7 +18,7 @@ SKIP_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", "node_modules", "d
 #: `pii_gate.py` contains every pattern it looks for, and `test_pii_gate.py`
 #: contains the sample leaks it is checked against - both would fail on
 #: themselves forever, which is how a gate gets switched off.
-SKIP_FILES = {"pii_gate.py", "test_pii_gate.py", "uv.lock", "last-run.json"}
+SKIP_FILES = {"pii_gate.py", "test_pii_gate.py", "uv.lock", "last-run.json", "conversations-last-run.json"}
 #: EVERYTHING is scanned. There is no allow-list of "text" extensions any more.
 #:
 #: There was, and it was the wrong default for a release gate: a suffix in
@@ -118,25 +118,45 @@ _SESSION_LINK = re.compile(r"claude\.ai/code/session_\w+|^Claude-Session:", re.I
 
 
 def commit_messages(patterns: dict[str, re.Pattern]) -> int:
-    """The TEXT of every commit about to be published - those no remote has yet
-    (all of them in a repository without one): a commit message is published
-    like a file, and none of these checks looked at it. What is already public
-    is not this gate's to change; what is not yet, it can still stop."""
+    """The TEXT of every commit about to be published: a commit message is
+    published like a file, and none of these checks looked at it. Which commits:
+    those a push sends that the remote it goes to does not have yet (the
+    pre-push hook passes them in `PII_GATE_PUSH` and `PII_GATE_REMOTE`) -
+    otherwise HEAD's that no remote has. Reading HEAD alone let `git push origin
+    other-branch` carry a link out. What is already public is not this gate's to
+    change; what is not yet, it can still stop."""
     if not (ROOT / ".git").exists():
         return 0
     import subprocess
 
-    out = subprocess.run(["git", "-C", str(ROOT), "log", "HEAD", "--not", "--remotes",
-                          "--format=%h%x1f%B%x1e"], capture_output=True, text=True, errors="replace")
+    revs = os.environ.get("PII_GATE_PUSH", "").split() or ["HEAD"]
+    remote = os.environ.get("PII_GATE_REMOTE", "").strip()
+    # NUL between commits (`-z`): no message can hold one, any other separator
+    # a message can carry and hide what follows it.
+    out = subprocess.run(["git", "-C", str(ROOT), "log", "-z", "--format=%h%n%B", *revs, "--not",
+                          f"--remotes={remote}" if remote else "--remotes"],
+                         capture_output=True, text=True, errors="replace")
     if out.returncode != 0:          # no commits yet
         return 0
-    checks = {"AI session link": _SESSION_LINK,
-              **{k: v for k, v in patterns.items() if k != "long numeric id (chat/user id?)"}}
     hits = 0
-    for entry in out.stdout.split("\x1e"):
-        sha, _, text = entry.strip().partition("\x1f")
-        for label, rx in checks.items():
-            if sha and (m := rx.search(text)):
+    for entry in out.stdout.split("\0"):
+        sha, _, text = entry.strip().partition("\n")
+        if not sha:
+            continue
+        # The link also when it is broken across lines.
+        if (m := _SESSION_LINK.search(text) or _SESSION_LINK.search(re.sub(r"\s+", "", text))):
+            hits += 1
+            print(f"commit {sha}: message: AI session link: {m.group(0)[:60]}")
+        for line in text.splitlines():
+            citation = _DOI.search(line) is not None          # read like a file's line
+            if citation:
+                line = _DOI.sub(" ", line)
+            for label, rx in patterns.items():
+                if citation and label == "German leftover":
+                    continue
+                m = rx.search(line)
+                if not m or (label.startswith("long numeric") and ALLOWED_NUMBERS.search(line)):
+                    continue
                 hits += 1
                 print(f"commit {sha}: message: {label}: {m.group(0)[:60]}")
     return hits

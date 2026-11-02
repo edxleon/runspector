@@ -9,7 +9,11 @@ set -e
 cd "$(git rev-parse --show-toplevel)"
 
 zero=0000000000000000000000000000000000000000
+pushed=""
 while read -r local_ref local_sha remote_ref remote_sha; do
+    # What this push sends, for the gate below - tags too: the text of every
+    # commit it publishes is checked, not only the checked-out branch's.
+    [ "$local_sha" != "$zero" ] && pushed="$pushed $local_sha"
     case "$local_ref" in refs/tags/*) continue ;; esac
     [ "$local_sha" = "$zero" ] && continue
     [ "$remote_sha" = "$zero" ] && continue
@@ -23,18 +27,38 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         exit 1
     fi
     # The check before a fact is kept is a prompt and a model, measured by its
-    # own cases: a change to either ships with a run, which appends to the log.
-    if echo "$changed" | grep -qx 'src/runspector/web/agent.py' &&
-       ! echo "$changed" | grep -qx 'evals/MEMORY_CHECK_LOG.md'; then
-        check_of() {
-            git show "$1:src/runspector/web/agent.py" 2>/dev/null | python3 -c '
-import hashlib, re, sys
-s = sys.stdin.read()
-parts = [re.search(p, s, re.S) for p in (r"VERIFY_PROMPT = \"\"\"(.*?)\"\"\"", r"VERIFY_MODEL = \"([^\"]*)\"")]
-print(hashlib.sha256(repr([m and m.group(1) for m in parts]).encode()).hexdigest())'
-        }
-        if [ "$(check_of "$remote_sha")" != "$(check_of "$local_sha")" ]; then
-            echo "pre-push: the check before a fact is kept changed, evals/MEMORY_CHECK_LOG.md did not."
+    # own cases: a change to either ships with a green run OF THAT prompt and
+    # model - three repeats, no miss - in evals/MEMORY_CHECK_LOG.md. A changed
+    # log was not enough: a run of an earlier draft, of --no-rules or of another
+    # model passed as well. `uv run python`, so it also runs where python3 is not.
+    if echo "$changed" | grep -qx 'src/runspector/web/agent.py'; then
+        verdict=$(uv run python - "$remote_sha" "$local_sha" <<'PY'
+import hashlib, re, subprocess, sys
+
+def show(sha, path):
+    out = subprocess.run(["git", "show", f"{sha}:{path}"], capture_output=True, text=True)
+    return out.stdout if out.returncode == 0 else ""
+
+def check(sha):
+    src = show(sha, "src/runspector/web/agent.py")
+    prompt = re.search(r'VERIFY_PROMPT = """(.*?)"""', src, re.S)
+    model = re.search(r'VERIFY_MODEL = "([^"]*)"', src)
+    return (prompt and prompt.group(1), model and model.group(1))
+
+old, new = check(sys.argv[1]), check(sys.argv[2])
+if old == new or new[0] is None:
+    print("ok")
+else:
+    h = hashlib.sha256(new[0].encode()).hexdigest()[:8]
+    rows = [[c.strip() for c in line.split("|")[1:-1]]
+            for line in show(sys.argv[2], "evals/MEMORY_CHECK_LOG.md").splitlines() if line.startswith("|")]
+    green = [r for r in rows if len(r) >= 6 and r[1] == new[1] and r[2] == h
+             and r[3].isdigit() and int(r[3]) >= 3 and r[5] == "-"]
+    print("ok" if green else f"no green run of {new[1]} with prompt {h}")
+PY
+)
+        if [ "$verdict" != "ok" ]; then
+            echo "pre-push: the check before a fact is kept changed - $verdict in evals/MEMORY_CHECK_LOG.md."
             echo "          uv run python evals/run_memory_check.py   (or --no-verify, and say why)"
             exit 1
         fi
@@ -43,7 +67,7 @@ done
 
 uv run ruff check
 uv run pytest -q -x -p no:cacheprovider
-uv run python scripts/pii_gate.py
+PII_GATE_PUSH="$pushed" PII_GATE_REMOTE="$1" uv run python scripts/pii_gate.py
 # The frontend lint, when node is here at all (same version as ci.yml).
 if command -v npx >/dev/null 2>&1; then
     npx --yes @biomejs/biome@2.5.15 lint --error-on-warnings

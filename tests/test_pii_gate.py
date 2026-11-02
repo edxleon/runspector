@@ -267,3 +267,49 @@ def test_what_a_remote_already_has_is_not_held_against_the_next_commit(tree):
     _git(tree, "commit", "-q", "--allow-empty", "-m", "new and clean", email=email)
     rc, out = run_gate(tree)
     assert rc == 0, out
+
+
+def test_what_is_pushed_is_checked_not_only_what_is_checked_out(tree):
+    """`git push origin leak` from main: the gate read HEAD's history and said
+    clean while another branch carried the session link out."""
+    email = "1+someone@users.noreply.github.com"
+    _git(tree, "init", "-q", "-b", "main", email=email)
+    _git(tree, "add", "-A", email=email)
+    _git(tree, "commit", "-qm", "clean", email=email)
+    _git(tree, "checkout", "-qb", "leak", email=email)
+    message = "x\n\nClaude-Session: https://claude.ai/code/session_0abcDEF"
+    _git(tree, "commit", "-q", "--allow-empty", "-m", message, email=email)
+    leak = subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    _git(tree, "checkout", "-q", "main", email=email)
+    rc, out = run_gate(tree, PII_GATE_PUSH=leak)
+    assert rc == 1 and "AI session link" in out, out
+
+
+@pytest.mark.parametrize("message", [
+    "x\x1e\n\nClaude-Session: https://claude.ai/code/session_0abcDEF",    # a record separator before it
+    "see claude.ai/code/\nsession_0abcDEF",                               # the link across two lines
+    "chat 7123456789 of activity 18234567890",                            # an id, like in a file
+])
+def test_a_commit_text_cannot_hide_from_the_gate(tree, message):
+    email = "1+someone@users.noreply.github.com"
+    _git(tree, "init", "-q", email=email)
+    _git(tree, "add", "-A", email=email)
+    _git(tree, "commit", "-qm", message, email=email)
+    rc, out = run_gate(tree)
+    assert rc == 1 and "message:" in out, out
+
+
+def test_a_citation_in_a_commit_text_is_no_leak(tree):
+    email = "1+someone@users.noreply.github.com"
+    _git(tree, "init", "-q", email=email)
+    _git(tree, "add", "-A", email=email)
+    _git(tree, "commit", "-qm", "Polarised training (Stöggl & Sperlich 2014, doi:10.3389/fphys.2014.00033)",
+         email=email)
+    rc, out = run_gate(tree)
+    assert rc == 0, out
+
+
+def test_the_gitignored_answers_of_an_eval_run_are_not_scanned():
+    gate = GATE.read_text(encoding="utf-8")
+    assert '"conversations-last-run.json"' in gate, "an untracked file of model answers blocked the push"

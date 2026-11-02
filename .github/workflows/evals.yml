@@ -104,6 +104,7 @@ jobs:
       # One call before the suite: an expired or revoked token is one clear line, not
       # every case red with the same auth error.
       - name: The token works
+        id: token
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
@@ -127,21 +128,27 @@ jobs:
         run: uv run --python 3.12 --locked python evals/run_evals.py
 
       # The check before the coach keeps a fact (roadmap 25): its own cases,
-      # each run three times; one wrong verdict is red. `if: always()`: a red
-      # coach case must not hide how the check did.
+      # each run three times; one wrong verdict is red. Also after a red coach
+      # case - it must not hide how the check did - but not after a failed
+      # token or a Cancel: then every card would wait out the quota retry.
       - name: The check before a fact is kept
-        if: always()
+        if: ${{ !cancelled() && steps.token.outcome == 'success' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: uv run --python 3.12 --locked python evals/run_memory_check.py --note "weekly"
+        # The committed result goes first: a run that crashes must not leave last week's in the summary.
+        run: |
+          rm -f evals/MEMORY_CHECK.md
+          uv run --python 3.12 --locked python evals/run_memory_check.py --note "weekly"
 
       # Conversations end to end against `serve --demo`: the card frame, the
       # conversation, the next steps, what is kept and let go - as they ship.
       - name: Conversations with the coach
-        if: always()
+        if: ${{ !cancelled() && steps.token.outcome == 'success' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: uv run --python 3.12 --locked python evals/run_conversations.py --note "weekly"
+        run: |
+          rm -f evals/CONVERSATIONS.md
+          uv run --python 3.12 --locked python evals/run_conversations.py --note "weekly"
 
       - name: Result as the job summary
         if: always()
@@ -163,5 +170,6 @@ jobs:
             evals/MEMORY_CHECK_LOG.md
             evals/CONVERSATIONS.md
             evals/CONVERSATIONS_LOG.md
+            evals/conversations-last-run.json
           retention-days: 30
           if-no-files-found: ignore

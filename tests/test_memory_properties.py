@@ -8,7 +8,9 @@ A shadow of what MUST be kept runs beside the real files, and after every step:
   it never pushes an old one out;
 - every kept fact reaches the coach (`told_text`), as a card and a chat read it;
 - a fact let go is in no record, no chat and on no card any more, under any of
-  the days or wordings it had - its id is the thread through all of them;
+  the days or wordings it had - its id is the thread through all of them -
+  and every card that was given it or noted it is marked, so none says it
+  back as a previous card;
 - a card lists only what is kept now.
 
 Deterministic: fixed seeds. `RUNSPECTOR_SIM_SEEDS=N` runs N more, the way the
@@ -41,6 +43,7 @@ class Course:
         self.alive: dict[str, str] = {}      # id -> text, what MUST be kept
         self.let_go: set[str] = set()
         self.cards: list[str] = []
+        self.held: dict[str, set[str]] = {}  # card -> the fact ids it was given or noted
         self.app = server.App.__new__(server.App)
         self.app.store = None
         self.app.week = lambda: {}
@@ -85,6 +88,7 @@ class Course:
                 del expect[i]
             expect[gone[0] if gone else next(new_ids)] = text
         self.alive = expect
+        self.held[cid] = {a["id"] for a in added}
 
     def record(self) -> None:
         """A later card and a chat that were given what is kept now."""
@@ -96,6 +100,7 @@ class Course:
         (evidence.chats_dir() / f"2026-11-{self.n % 28 + 1:02d}-{self.n}.jsonl").write_text(
             json.dumps({"tool": "get_athlete_profile", "result": f"x\n{given}\ny"}) + "\n", encoding="utf-8")
         self.cards.append(cid)
+        self.held[cid] = set(self.alive)
 
     def forget(self) -> None:
         if not self.alive:
@@ -127,6 +132,10 @@ class Course:
             self.keep([{"text": self.new_text(), "replaces": fid},
                        {"text": self.new_text() + " too", "replaces": fid}])
             return "two changes"
+        if r < 0.62:
+            text = self.new_text()                                        # the same fact twice in one card
+            self.keep([{"text": text}, {"text": text.lower() + "."}])
+            return "twice in one card"
         if r < 0.78:
             self.record()
             return "record"
@@ -155,6 +164,14 @@ class Course:
                 assert prefix not in text, f"{what}: {fid} still in the record {p.name}"
             for p in evidence.chats_dir().glob("*.jsonl"):
                 assert prefix not in p.read_text(encoding="utf-8"), f"{what}: {fid} still in {p.name}"
+        for cid, held in self.held.items():
+            card = jobs.read_card(cid)
+            if card is None:
+                continue
+            stored = {t.get("id") for t in card.get("told") or []}
+            assert not stored & self.let_go, f"{what}: card {cid} still stores a fact let go"
+            if held & self.let_go:
+                assert card.get("told_let_go") is True, f"{what}: card {cid} held a fact let go, unmarked"
         for c in jobs.public_cards(limit=500):
             for t in c.get("told") or []:
                 assert t["id"] in self.alive and t["text"] == self.alive[t["id"]], \
@@ -179,5 +196,6 @@ def test_the_course_reaches_every_kind_of_step_and_a_full_list(tmp_path, monkeyp
         for _ in range(STEPS):
             seen.add(course.step())
             full |= len(profile.told()) >= profile.TOLD_MAX
-    assert seen >= {"new", "again", "change", "two changes", "record", "forget", "delete"}
+    assert seen >= {"new", "again", "change", "two changes", "twice in one card", "record", "forget",
+                    "delete"}
     assert full, "no course reached a full list"

@@ -33,3 +33,6 @@ The first five rows ran a smaller probe set (26-34 notes, then a 5-note pain set
 | 2026-11-02 11:10 | sonnet | fc9c0ac7 | 3 | 126/126 | - | shipped: sonnet, p6 + gate |
 | 2026-11-02 11:11 | haiku | fc9c0ac7 | 3 | 125/126 | a-follow-up-read-by-what-came-before-de | same, haiku for comparison |
 | 2026-11-02 11:12 | sonnet | NO RULES | 2 | 70/84 | a-change-in-their-words-de; a-change-must-change-that-fact; a-new-fact-beside-is-no-change; a-one-off-is-not-lasting-de; a-pain-for-weeks-is-a-pain; a-pain-for-weeks-is-a-pain-de; lasting-facts-beside-a-pain-de; what-came-before-is-not-said-now | negative control: no rules in the prompt |
+| 2026-11-02 12:15 | sonnet | fc9c0ac7 | 3 | 129/132 | an-instruction-in-plain-words | after the security review: marker gate narrowed, two plain-word instruction cases |
+| 2026-11-02 12:18 | sonnet | 35fd322c | 3 | 134/135 | a-not-stays-a-not | a note must be about the athlete in every word |
+| 2026-11-02 12:19 | sonnet | 35fd322c | 3 | 132/132 | - | shipped prompt, after the review |
