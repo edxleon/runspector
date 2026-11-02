@@ -560,3 +560,30 @@ test("renderProposal: the athlete's change puts the coach's word next to the but
   const done = renderProposal({ ...p, status: "applied", pending: 0, workouts: [] });
   assert.match(done, /Undo the change/);
 });
+
+test("renderProposal: a change the coach filed is not called the athlete's own", async () => {
+  // Security review: a change the coach filed from a card read "Your change ...
+  // the change stands as you made it".
+  const { renderProposal } = await import("../src/runspector/web/static/cards.js");
+  const p = { id: "p-20261102-120000-abcd", day: "2026-11-04", days: 0, status: "open", change: true,
+              filed_by: "coach", notes: [], preview: "Takes off the calendar: Wed 2026-11-04 \"Race\"" };
+  const html = renderProposal(p);
+  assert.doesNotMatch(html, /Your change|as you made it/);
+  assert.match(html, /The coach's change/);
+  assert.match(html, /check what it takes off/i);
+  assert.match(renderProposal({ ...p, filed_by: "athlete" }), /Your change/);
+});
+
+test("renderProposal: a change half done offers both the retry and the way back", async () => {
+  // Review: Saturday came off, Friday's upload failed - the card had no undo.
+  const { renderProposal } = await import("../src/runspector/web/static/cards.js");
+  const p = { id: "p-20261102-120000-abcd", day: "2026-11-06", days: 1, status: "open", change: true,
+              filed_by: "athlete", notes: [], taken_off: 1, pending: 1, workouts: [],
+              preview: "Fri 2026-11-06: Easy run 24 min" };
+  const half = renderProposal(p);
+  assert.match(half, /data-apply=/);
+  assert.match(half, /data-undo=/);
+  const done = renderProposal({ ...p, status: "applied", pending: 0, workouts: [9001], taken_off: 1 });
+  assert.match(done, /Changed on Garmin/);
+  assert.match(done, /Undo the change/);
+});

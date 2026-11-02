@@ -946,6 +946,15 @@ class Store:
                 "scheduled_day = excluded.scheduled_day",
                 (int(workout_id), name, kind, spec_json, _now(), schedule_id, _v(scheduled_day)))
 
+    def set_workout_schedule(self, workout_id: int, schedule_id: int | None,
+                             day: date | None) -> None:
+        """Where a workout of this app's now sits on the calendar - or that it
+        sits nowhere. Kept true when a change takes it off or puts it back
+        (the week it came from reads its entry from here)."""
+        with self._conn() as conn:
+            conn.execute("UPDATE runcoach_workouts SET schedule_id = ?, scheduled_day = ? "
+                         "WHERE workout_id = ?", (schedule_id, _v(day), int(workout_id)))
+
     def own_workouts(self) -> list[dict]:
         with self._conn() as conn:
             return conn.execute(

@@ -960,7 +960,8 @@ def propose_change(store: Store, changes: list[dict]) -> str:
     from . import plan
 
     try:
-        p = plan.propose_change(store, [dict(c) for c in (changes or [])], today=paths.today())
+        p = plan.propose_change(store, [dict(c) for c in (changes or [])], today=paths.today(),
+                                filed_by="coach")
     except (TypeError, ValueError) as exc:
         return f"Cannot make that change: {exc}"
     notes = ("The coach: lines are what the rules think of it - say them to the athlete in your "

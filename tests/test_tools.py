@@ -1090,7 +1090,10 @@ def test_the_summary_drops_the_removal_claim_when_the_unschedule_failed(store, t
     out = tools.apply_workout(store, pid)
     assert "could not remove" in out and "Removed from the calendar" not in out
     assert f'could not remove "VO2max 5x3" from {today}' in out, "it names WHICH entry stayed"
-    assert plan.read(pid)["replaces"][0]["removed"] is False
+    # A refusal proves Garmin did nothing: the entry stays open for another
+    # try - the positive check against the mirror guards that try (review of
+    # the week changes: a refused removal could never be made).
+    assert plan.read(pid)["replaces"][0]["removed"] is None
 
 
 def test_an_unschedule_that_happened_is_not_attempted_twice(store, today, monkeypatch):

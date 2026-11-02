@@ -981,6 +981,11 @@ function renderVo2() {
    coach's word on it; the calendar changes only with "Put on watch". */
 const planEdit = { day: null, proposal: null, error: null, busy: false };
 
+/** Which input of the strip this is: its data attribute and the entry it
+ *  belongs to - the same input after a redraw has the same key. */
+const planKey = x => [...x.attributes].filter(a => a.name.startsWith("data-plan"))
+  .map(a => `${a.name}=${a.value}`).join("|");
+
 async function fileChange(edits) {
   if (planEdit.busy) return;
   Object.assign(planEdit, { busy: true, error: null, proposal: null });
@@ -993,19 +998,26 @@ async function fileChange(edits) {
   }
   planEdit.busy = false;
   renderWeek();
-  document.querySelector("[data-proposal]")?.scrollIntoView({ block: "nearest" });
+  document.querySelector(`#week [data-proposal="${CSS.escape(planEdit.proposal?.id || "")}"]`)
+    ?.scrollIntoView({ block: "nearest" });
 }
 
 function weekPanelHtml(days, nowIso) {
-  const cell = planEdit.day && days.find(t => t.day === planEdit.day);
-  if (!cell) return "";
   const can = !D().demo && D().garmin_session !== false;
-  return `${dayPanelHtml(cell, { todayIso: nowIso })}${
+  const hint = D().demo ? "demo data - no Garmin account to write to"
+                        : "needs a Garmin login (runspector login)";
+  // The athlete's changes on the calendar now, with their undo - they outlive
+  // the panel they were made in (review). The one being made is shown below.
+  const made = (D().week_changes || []).filter(c => c.id !== planEdit.proposal?.id);
+  const madeHtml = made.length
+    ? `<div class="plan-made">${made.map(c => renderProposal(c, { canApply: can, applyHint: hint }))
+        .join("")}</div>` : "";
+  const cell = planEdit.day && days.find(t => t.day === planEdit.day);
+  if (!cell) return madeHtml;
+  return `${madeHtml}${dayPanelHtml(cell, { todayIso: nowIso })}${
     planEdit.busy ? `<div class="note">Asking the coach…</div>` : ""}${
     planEdit.error ? `<div class="note proposal-warn">! ${esc(planEdit.error)}</div>` : ""}${
-    planEdit.proposal ? renderProposal(planEdit.proposal, {
-      canApply: can, applyHint: D().demo ? "demo data - no Garmin account to write to"
-                                         : "needs a Garmin login (runspector login)" }) : ""}`;
+    planEdit.proposal ? renderProposal(planEdit.proposal, { canApply: can, applyHint: hint }) : ""}`;
 }
 
 function renderWeek() {
@@ -1065,9 +1077,13 @@ function renderWeek() {
     .flatMap(t => t.planned || []).concat(p.upcoming || []);
   const heldNote = heldLine(shown, D().check_ins || {}, (D().decision_today || {}).decision, fmtDay);
   const nothingPlanned = !days.some(t => (t.planned || []).length) && !(p.upcoming || []).length;
-  // The strip is drawn again on every refresh: what is being typed stays.
-  const typing = el.querySelector("[data-plan-say]")?.value || "";
-  const focused = document.activeElement?.matches?.("[data-plan-say]");
+  // The strip is drawn again on every refresh: what is being typed or picked
+  // stays - the words for the coach, and the day's minutes and kind (review).
+  const kept = new Map([...el.querySelectorAll(
+    "[data-plan-say], [data-plan-minutes], [data-plan-kind], [data-plan-add-kind], [data-plan-add-minutes]")]
+    .map(x => [planKey(x), x.value]));
+  const focused = document.activeElement && el.contains(document.activeElement)
+    ? planKey(document.activeElement) : null;
   el.innerHTML = `
     <div class="subhead">This week</div>
     <div class="week-strip">${columns}</div>
@@ -1081,8 +1097,12 @@ function renderWeek() {
     ${heldNote ? `<div class="note">${esc(heldNote)}</div>` : ""}
     ${nothingPlanned ? `<div class="thin-data">Nothing is scheduled on the watch. Workouts
         in the Garmin calendar appear here after the next sync.</div>` : ""}`;
-  const say = el.querySelector("[data-plan-say]");
-  if (say && typing) { say.value = typing; if (focused) say.focus(); }
+  for (const x of el.querySelectorAll(
+    "[data-plan-say], [data-plan-minutes], [data-plan-kind], [data-plan-add-kind], [data-plan-add-minutes]")) {
+    const k = planKey(x);
+    if (kept.has(k)) x.value = kept.get(k);
+    if (k === focused) x.focus();
+  }
 }
 
 /* Minutes ABOVE THE EASY ZONES per week against the 80/20 SHARE — not against

@@ -506,6 +506,9 @@ export function renderProposal(p, opts = {}) {
   // buttons say what they do to the calendar.
   const change = p.change === true;
   const removing = change && !Number(p.days);
+  // Who filed it: the athlete in the week strip, or the coach from their words
+  // - never called the athlete's own when it was not (security review).
+  const byCoach = change && p.filed_by === "coach";
   // The way back exists as soon as anything is on Garmin, not only once all
   // of it is: a half-applied week used to offer "add the rest" and no undo.
   const undo = `<button type="button" class="btn btn-quiet" data-undo="${esc(p.id)}"
@@ -515,9 +518,13 @@ export function renderProposal(p, opts = {}) {
          ${change ? "Undo the change" : "Take off watch"}</button>`;
   const label = partial ? `Put the remaining ${esc(pending)} on watch`
     : removing ? "Take it off the watch" : change ? "Put the change on watch" : "Put on watch";
+  // A change half done - the old day off, the new session not up - can be
+  // tried again AND taken back (review: it offered no way back).
+  const tookOff = change && Number(p.taken_off || 0) > 0;
   const button = applied
-    ? `<span class="pill pill-ok">On Garmin${ids.length > 1 ? ` · ${ids.length} workouts`
-        : ids.length ? ` · workout ${esc(ids[0])}` : ""}${p.day ? ` · ${esc(p.day)}` : ""}</span>
+    ? `<span class="pill pill-ok">${change ? "Changed on Garmin" : `On Garmin${ids.length > 1
+        ? ` · ${ids.length} workouts` : ids.length ? ` · workout ${esc(ids[0])}` : ""}${
+        p.day ? ` · ${esc(p.day)}` : ""}`}</span>
        ${undo}`
     : `<button type="button" class="btn btn-primary" data-apply="${esc(p.id)}"
                data-arm-label="Sure? ${partial ? `${esc(pending)} more go` : change
@@ -526,7 +533,7 @@ export function renderProposal(p, opts = {}) {
                title="${change ? "Change your Garmin calendar as listed" : `Upload to Garmin, schedule ${
                  week ? `${esc(p.days)} sessions from` : "for"} ${esc(p.day || "the day")}, push to the watch`}">
          ${label}</button>${
-           partial && ids.length ? undo : ""}${
+           (partial && ids.length) || tookOff ? undo : ""}${
            can ? "" : `<span class="note">${
              opts.applyHint ? esc(opts.applyHint) : "needs a Garmin login"}</span>`}`;
   // The safety net, next to the button that writes: what changes, and that
@@ -538,17 +545,21 @@ export function renderProposal(p, opts = {}) {
     Garmin - nothing else on your calendar changes. "Take off watch" removes it again; the
     workout stays in your Garmin library.</div>`;
   const notes = (Array.isArray(p.notes) ? p.notes : []).filter(Boolean);
+  const yours = byCoach
+    ? `<p class="note">Filed by the coach from what you said - check what it takes off and puts
+        on before it goes on the watch.</p>`
+    : `<p class="note">It is your call - the change stands as you made it.</p>`;
   const coach = !change ? ""
     : notes.length
       ? `<div class="proposal-coach"><div class="subhead">The coach</div>${
-          notes.map(n => `<p class="note">${esc(n)}</p>`).join("")}<p class="note">It is your
-          call - the change stands as you made it.</p></div>`
-      : `<div class="proposal-coach"><p class="note">The coach has nothing against it.</p></div>`;
+          notes.map(n => `<p class="note">${esc(n)}</p>`).join("")}${yours}</div>`
+      : `<div class="proposal-coach"><p class="note">The coach has nothing against it.</p>${
+          byCoach ? yours : ""}</div>`;
   const steps = change
     ? String(p.preview || "").split("\n").filter(l => !l.startsWith("  coach: ")).join("\n")
     : String(p.preview || "");
   return `<div class="card-proposal" data-proposal="${esc(p.id)}">
-    <div class="subhead">${change ? "Your change" : week ? `Proposed week · ${esc(p.days)} sessions`
+    <div class="subhead">${byCoach ? "The coach's change, from your words" : change ? "Your change" : week ? `Proposed week · ${esc(p.days)} sessions`
       : "Proposed session"}${p.day && !change ? ` · ${esc(p.day)}` : ""}${
       partial ? ` · ${esc(Number(p.days || 1) - pending)} of ${esc(p.days)} on Garmin` : ""}</div>
     <pre class="proposal-steps">${esc(steps)}</pre>
