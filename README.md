@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1522 tests, 132 frontend tests and that gate on three operating systems and two Python versions, with every
+1528 tests, 132 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -126,7 +126,7 @@ uv tool upgrade runspector     # the newest release; your data and Garmin sessio
 uv tool uninstall runspector   # removes the program only - delete ~/.runspector yourself if you want the data gone
 ```
 
-`uv tool install runspector` takes the latest release from PyPI (`runspector==0.8.0` pins one; `pipx install runspector`
+`uv tool install runspector` takes the latest release from PyPI (`runspector==0.9.0` pins one; `pipx install runspector`
 and `pipx upgrade runspector` do the same without uv);
 `uv tool install git+https://github.com/edxleon/runspector` takes whatever is on `main`.
 
