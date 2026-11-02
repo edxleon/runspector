@@ -23,3 +23,4 @@
 | 2026-11-02 18:08 | sonnet | 19/19 | - | final comparison: sonnet (a card 16 s median) |
 | 2026-11-02 18:11 | sonnet | 19/19 | - | final comparison: sonnet (a card 14 s median) |
 | 2026-11-02 18:21 | opus | 18/19 | a-restart-in-german | final comparison: opus (a card 63 s median) |
+| 2026-11-02 18:25 | haiku | 17/19 | a-restart-in-german | final comparison: haiku (a card 22 s median) |
