@@ -300,8 +300,11 @@ def test_what_is_pushed_is_checked_not_only_what_is_checked_out(tree):
     _git(tree, "checkout", "-qb", "leak", email=email)
     message = "x\n\nClaude-Session: https://claude.ai/code/session_0abcDEF"
     _git(tree, "commit", "-q", "--allow-empty", "-m", message, email=email)
-    leak = subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD"],
-                          capture_output=True, text=True).stdout.strip()
+    # Without GIT_*: from a linked worktree's pre-push hook, GIT_DIR is absolute
+    # and would answer for the repository being pushed, not for this tree.
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    leak = subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD"], capture_output=True, text=True,
+                          env=clean).stdout.strip()
     _git(tree, "checkout", "-q", "main", email=email)
     rc, out = run_gate(tree, PII_GATE_PUSH=leak)
     assert rc == 1 and "AI session link" in out, out
