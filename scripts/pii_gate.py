@@ -14,7 +14,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKIP_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", "node_modules", "dist", ".ruff_cache"}
+SKIP_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", "node_modules", "dist", ".ruff_cache",
+             ".hypothesis"}
 #: `pii_gate.py` contains every pattern it looks for, and `test_pii_gate.py`
 #: contains the sample leaks it is checked against - both would fail on
 #: themselves forever, which is how a gate gets switched off.
