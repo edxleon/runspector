@@ -1,7 +1,7 @@
 // The shipped frontend (src/runspector/web/static) has no build step and no
 // framework, so nothing else reads it before a browser does. Lint only: the
 // formatter would rewrite 4,000 hand-laid lines for no behaviour.
-// The version is pinned where it runs (ci.yml, CLAUDE.md) and in $schema.
+// The version is pinned where it runs (ci.yml, AGENTS.md) and in $schema.
 {
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "files": {

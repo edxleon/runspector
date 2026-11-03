@@ -20,7 +20,7 @@ uv run ruff check && uv run pytest -q && node --test "web-tests/*.test.mjs" && u
 ```
 
 CI runs the same on three operating systems, plus a coverage floor and an install of the built
-wheel. `CLAUDE.md` lists what else a change pulls along (a rule needs a scenario test that was red
+wheel. `AGENTS.md` lists what else a change pulls along (a rule needs a scenario test that was red
 first, a new tool changes the tool counts, a prompt change needs an eval run).
 
 ## Changes that need a deep review
@@ -41,3 +41,5 @@ get a deep review before they are committed. With Claude Code it is the `/deep-r
 
 Say in the pull request what the review found. No personal data in the tree - `scripts/pii_gate.py`
 checks it, and `RUNSPECTOR_PII_EXTRA` adds your own private terms without committing them.
+
+A security problem goes to the maintainer privately, not into an issue: `SECURITY.md` says how.

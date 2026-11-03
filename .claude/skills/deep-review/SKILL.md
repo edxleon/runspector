@@ -15,7 +15,7 @@ before the commit, on the uncommitted diff (`git diff HEAD`), or on the last com
 |---|---|
 | `plan.py` (apply, undo, claims), `garmin.py` write calls, `web/agent.py`, `mcp_server.py` tool set, `.github/workflows/**`, `src/runspector/migrations/*.sql`, or over ~1,000 lines | **full**: steps 1-5 |
 | a rule (`logic.py`, `planning.py`, `plan.py`, `habits.py`) or a prompt (`skills/*.md`) | **light**: steps 1-4, one reviewer |
-| anything else | the checks in `CLAUDE.md` are enough |
+| anything else | the checks in `AGENTS.md` are enough |
 
 ## What counts
 
