@@ -104,6 +104,7 @@ ignore = ["SIM102", "SIM105"]
 "tests/**" = ["S603", "S607"]
 "evals/**" = ["S603", "S607"]
 "scripts/**" = ["S603", "S607"]
+".claude/**" = ["S603", "S607"]
 
 # Mutation testing (.github/workflows/mutation.yml, Linux only: mutmut needs a
 # clean fork()). The rule modules the coach's decisions come from - the files
