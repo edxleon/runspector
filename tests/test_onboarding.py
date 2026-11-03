@@ -219,3 +219,47 @@ def test_the_data_folder_is_shown_without_the_account_name(tmp_path, monkeypatch
     assert paths.display_path(tmp_path / ".runspector") == "~/.runspector"
     # Outside the home the path is shown as the system writes it (backslashes on Windows).
     assert paths.display_path(Path("/opt/elsewhere")) == str(Path("/opt/elsewhere"))
+
+
+def _card_mode_claude(monkeypatch, tmp_path, *, unread: dict | None, read: dict):
+    """A CLI that answers `auth status` one way with `--setting-sources ""`
+    (as a card that leaves the settings unread) and another way without."""
+    log = tmp_path / "argv.json"
+    program = (f"import json, sys; open({str(log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n'); "
+               f"print({json.dumps(unread) if unread is not None else 'not json'!r} "
+               f"if '--setting-sources' in sys.argv else {json.dumps(read)!r})")
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps([sys.executable, "-c", program]))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    return log
+
+
+PLAN = {"loggedIn": True, "authMethod": "claude.ai"}
+
+
+@pytest.mark.parametrize(("unread", "can"), [
+    (PLAN, True),
+    # `claude setup-token`'s token kept in the settings' env: `auth status`
+    # with the settings says plan, without them nobody is signed in - a card
+    # that left them unread was signed out while doctor said "subscription".
+    ({"loggedIn": False}, False),
+    ({"loggedIn": True, "authMethod": "apiKey"}, False),
+    (None, False),                                   # a CLI too old to be asked so
+])
+def test_the_settings_stay_unread_only_when_the_plan_works_without_them(monkeypatch, tmp_path, unread, can):
+    log = _card_mode_claude(monkeypatch, tmp_path, unread=unread,
+                            read={"loggedIn": True, "authMethod": "oauth_token"})
+    assert onboarding.settings_can_stay_unread(fresh=True) is can
+    assert json.loads(log.read_text(encoding="utf-8").splitlines()[0]) == ["--setting-sources", "", "auth",
+                                                                          "status"]
+
+
+def test_a_proxy_in_the_settings_keeps_them_read_without_asking(monkeypatch, tmp_path):
+    """Names only: the value of a client key passphrase is never read."""
+    log = _card_mode_claude(monkeypatch, tmp_path, unread=PLAN, read=PLAN)
+    (tmp_path / "cfg").mkdir()
+    (tmp_path / "cfg" / "settings.json").write_text(json.dumps({"env": {"https_proxy": "http://proxy:3128"}}),
+                                                    encoding="utf-8")
+    assert onboarding.settings_can_stay_unread(fresh=True) is False and not log.exists()
+    (tmp_path / "cfg" / "settings.json").write_text(json.dumps({"env": {"MAX_THINKING_TOKENS": "8000"}}),
+                                                    encoding="utf-8")
+    assert onboarding.settings_can_stay_unread(fresh=True) is True

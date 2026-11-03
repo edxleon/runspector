@@ -717,11 +717,116 @@ def test_an_older_cli_without_the_session_flag_still_makes_the_card(tmp_path, mo
     (d / "out.jsonl").write_text(_stream([("get_training_readiness", {}, "HRV 52 ms (baseline 61, 9 under)")],
                                          CARD), encoding="utf-8")
     monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps([sys.executable, str(d / "claude_stub.py")]))
-    monkeypatch.setattr(agent, "_SESSION_FLAG", [True])
+    monkeypatch.setattr(agent, "_OPTIONAL", dict.fromkeys(agent._OPTIONAL, True))
     job = jobs.new_job("x", title="t", kind="train-today")
     done = agent.run(job, db=str(tmp_path / "t.db"))
     assert done["status"] == "done", done["result_summary"]
     assert (d / "runs.txt").read_text(encoding="utf-8").count("run") == 2
+
+
+OLDER_CLI_STUB = OLD_CLI_STUB.replace(
+    'if "--no-session-persistence" in sys.argv:\n'
+    '    sys.stderr.write("error: unknown option \'--no-session-persistence\'\\n")\n'
+    '    sys.exit(1)\n',
+    'for flag in ("--effort", "--disable-slash-commands"):\n'
+    '    if flag in sys.argv:\n'
+    '        sys.stderr.write(f"error: unknown option \'{flag}\'\\n")\n'
+    '        sys.exit(1)\n')
+
+
+def test_a_cli_that_knows_none_of_the_newer_options_still_makes_the_card(tmp_path, monkeypatch):
+    """`--effort` and `--disable-slash-commands` came later than this app's
+    oldest supported Claude Code: each refusal drops that one option, the
+    card is still made, and the isolation that CLI does know stays on."""
+    assert OLDER_CLI_STUB != OLD_CLI_STUB
+    d = tmp_path / "older"
+    d.mkdir()
+    (d / "claude_stub.py").write_text(OLDER_CLI_STUB, encoding="utf-8")
+    (d / "out.jsonl").write_text(_stream([("get_training_readiness", {}, "HRV 52 ms (baseline 61, 9 under)")],
+                                         CARD), encoding="utf-8")
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps([sys.executable, str(d / "claude_stub.py")]))
+    monkeypatch.setattr(agent, "_OPTIONAL", dict.fromkeys(agent._OPTIONAL, True))
+    done = agent.run(jobs.new_job("x", title="t", kind="train-today"), db=str(tmp_path / "t.db"))
+    assert done["status"] == "done", done["result_summary"]
+    assert (d / "runs.txt").read_text(encoding="utf-8").count("run") == 3
+    assert agent._OPTIONAL == {"--no-session-persistence": True, "--setting-sources": True,
+                               "--disable-slash-commands": False, "--effort": False}
+
+
+def test_a_card_run_keeps_the_athletes_own_claude_code_out(tmp_path, monkeypatch):
+    """Their CLAUDE.md files, auto memory, hooks and claude.ai connectors stay
+    out, the permission mode is the plain one, the effort is the coach's - an
+    `auto` mode or an effort in the athlete's settings changed every card."""
+    monkeypatch.setattr(agent, "_OPTIONAL", dict.fromkeys(agent._OPTIONAL, True))
+    cmd = agent.command(tmp_path, None)
+    settings = json.loads(cmd[cmd.index("--settings") + 1])
+    assert settings == {"claudeMdExcludes": ["**/CLAUDE.md", "**/CLAUDE.local.md", "**/AGENTS.md",
+                                             "**/.claude/rules/**"],
+                        "enabledPlugins": {"cc-plugin-agents-md@builtin": False},
+                        "autoMemoryEnabled": False, "disableAllHooks": True,
+                        "disableClaudeAiConnectors": True, "language": "english", "outputStyle": "default",
+                        "permissions": {"defaultMode": "default"}, "agent": "", "ultracode": False,
+                        "env": {"CLAUDE_CODE_EFFORT_LEVEL": "medium", "CLAUDE_CODE_EXTRA_BODY": "{}",
+                                "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "", "CLAUDE_CODE_DISABLE_THINKING": ""}}
+    assert cmd[cmd.index("--setting-sources") + 1] == "", "a plan sign-in: no settings file is read"
+    assert cmd[cmd.index("--effort") + 1] == agent.COACH_EFFORT == "medium"
+    assert "--disable-slash-commands" in cmd and "--no-session-persistence" in cmd
+    monkeypatch.setenv("RUNSPECTOR_EFFORT", "high")
+    cmd = agent.command(tmp_path, None)
+    assert cmd[cmd.index("--effort") + 1] == "high", "the override reaches both places"
+    assert json.loads(cmd[cmd.index("--settings") + 1])["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "high"
+    # A typo is no override: the CLI only warns and falls back to ITS default,
+    # which is the athlete's setting again.
+    monkeypatch.setenv("RUNSPECTOR_EFFORT", "hgh")
+    cmd = agent.command(tmp_path, None)
+    assert cmd[cmd.index("--effort") + 1] == "medium", "an unknown effort keeps the app's own"
+
+
+def test_a_sign_in_that_may_live_in_the_settings_keeps_them_read(tmp_path, monkeypatch):
+    """A key, a cloud provider or a plan token can sit in the athlete's
+    settings files: leaving those unread would sign the card out. The
+    overrides hold instead - and their rules folder is excluded where it is,
+    also when it is not called .claude."""
+    monkeypatch.setattr(agent, "_OPTIONAL", dict.fromkeys(agent._OPTIONAL, True))
+    monkeypatch.setattr(agent, "settings_can_stay_unread", lambda **_: False)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/srv/claude-config/")
+    cmd = agent.command(tmp_path, None)
+    assert "--setting-sources" not in cmd
+    settings = json.loads(cmd[cmd.index("--settings") + 1])
+    assert "/srv/claude-config/rules/**" in settings["claudeMdExcludes"]
+    assert settings["agent"] == "" and settings["env"]["CLAUDE_CODE_EXTRA_BODY"] == "{}"
+    assert "--setting-sources" in agent.command(tmp_path, None, unread_settings=True)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "D:\\tools\\cfg")
+    cmd = agent.command(tmp_path, None)
+    assert "D:/tools/cfg/rules/**" in json.loads(cmd[cmd.index("--settings") + 1])["claudeMdExcludes"]
+
+
+def test_the_refused_option_is_the_one_the_error_names():
+    """Claude Code adds "(Did you mean --x?)" under an unknown option: the flag
+    to drop is the one refused, never one the suggestion names."""
+    err = "error: unknown option '--sessions'\n(Did you mean --no-session-persistence?)\n"
+    assert agent._refused_option(1, err) is None
+    assert agent._refused_option(1, "error: unknown option '--effort'\n") == "--effort"
+    assert agent._refused_option(0, "error: unknown option '--effort'\n") is None
+
+
+def test_a_cli_that_refuses_the_isolation_fails_the_card_with_a_word_to_update(tmp_path, monkeypatch):
+    """`--settings` carries the isolation: dropped, the card would run with the
+    athlete's own CLAUDE.md, memory and permission mode. It is not optional -
+    the card fails and says what to do."""
+    d = tmp_path / "ancient"
+    d.mkdir()
+    (d / "claude_stub.py").write_text(OLD_CLI_STUB.replace("--no-session-persistence", "--settings"),
+                                      encoding="utf-8")
+    (d / "out.jsonl").write_text("", encoding="utf-8")
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps([sys.executable, str(d / "claude_stub.py")]))
+    monkeypatch.setattr(agent, "_OPTIONAL", dict.fromkeys(agent._OPTIONAL, True))
+    done = agent.run(jobs.new_job("x", title="t", kind="train-today"), db=str(tmp_path / "t.db"))
+    assert done["status"] == "failed"
+    summary = done["result_summary"]
+    assert "does not know --settings" in summary and "claude update" in summary
+    assert "runspector needs an update" in summary, "a NEWER CLI that renamed it is the other way round"
+    assert (d / "runs.txt").read_text(encoding="utf-8").count("run") == 1, "not run again without it"
 
 
 # ── a card the model closed with the wrong bracket ───────────────────────────

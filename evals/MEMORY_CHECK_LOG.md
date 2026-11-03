@@ -36,3 +36,4 @@ The first five rows ran a smaller probe set (26-34 notes, then a 5-note pain set
 | 2026-11-02 12:15 | sonnet | fc9c0ac7 | 3 | 129/132 | an-instruction-in-plain-words | after the security review: marker gate narrowed, two plain-word instruction cases |
 | 2026-11-02 12:18 | sonnet | 35fd322c | 3 | 134/135 | a-not-stays-a-not | a note must be about the athlete in every word |
 | 2026-11-02 12:19 | sonnet | 35fd322c | 3 | 132/132 | - | shipped prompt, after the review |
+| 2026-11-03 19:56 | sonnet | 35fd322c | 3 | 131/132 | an-instruction-in-plain-words | card isolation: setting-sources for a plan sign-in |

@@ -35,7 +35,7 @@ import yaml
 
 # The prompt under test is IMPORTED from the app, never re-declared here: a copy
 # would let the suite keep passing against a framing the product no longer ships.
-from runspector.web.agent import SKILLS, coaching_reference
+from runspector.web.agent import COACH_EFFORT, SKILLS, coaching_reference, isolation
 
 HERE = Path(__file__).resolve().parent
 LAST_RUN = HERE / "last-run.json"
@@ -118,20 +118,30 @@ def validate(spec: dict) -> list[str]:
     return problems
 
 
-def claude(prompt: str, model: str | None, timeout: int) -> tuple[str, float, str]:
+def claude(prompt: str, model: str | None, timeout: int, effort: str | None = None) -> tuple[str, float, str]:
     """(answer, cost_usd, error). Tool-free, MCP-free, empty cwd, prompt on STDIN."""
     with tempfile.TemporaryDirectory(prefix="runspector-eval-") as tmp:
         cfg = Path(tmp) / "mcp.json"
         cfg.write_text('{"mcpServers":{}}', encoding="utf-8")
-        # --safe-mode keeps YOUR ~/.claude/CLAUDE.md, hooks and plugins out of the run:
-        # a personal "always answer in German" would otherwise fail half the suite.
+        # --safe-mode keeps YOUR ~/.claude/CLAUDE.md, hooks and plugins out of the run,
+        # `--setting-sources ""` your settings files (a "language", an effort in
+        # their env): a personal "always answer in German" would otherwise fail
+        # half the suite. As the app's cards with a plan sign-in (`agent._isolated`).
         cmd = [shutil.which("claude") or "claude", "--print", "--output-format", "json",
-               "--safe-mode", "--strict-mcp-config", "--mcp-config", str(cfg), "--tools", ""]
+               "--safe-mode", "--setting-sources", "", "--strict-mcp-config", "--mcp-config", str(cfg),
+               "--tools", ""]
         if model:
             cmd += ["--model", model]
+        # The coach's answer at the app's own effort (`agent.COACH_EFFORT`): the
+        # athlete's setting or the CLI's default would measure another coach.
+        if effort:
+            cmd += ["--effort", effort, "--settings", isolation(effort)]
+        # CLAUDE_CODE_EFFORT_LEVEL beats --effort: a value in this machine's
+        # shell would measure another coach than the app runs.
+        env = {**os.environ, "CLAUDE_CODE_EFFORT_LEVEL": effort} if effort else None
         try:
             proc = subprocess.run(cmd, input=prompt, cwd=tmp, capture_output=True, text=True,
-                                  encoding="utf-8", errors="replace", timeout=timeout)
+                                  encoding="utf-8", errors="replace", timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
             return "", 0.0, f"timeout after {timeout}s"
         except OSError as exc:
@@ -170,7 +180,7 @@ def run_case(case: dict, defaults: dict, model: str | None, judge_model: str | N
              with_skills: bool = True) -> dict:
     timeout = int(defaults.get("timeout_sec", 180))
     start = time.monotonic()
-    answer, cost, err = claude(build_prompt(case, defaults, with_skills), model, timeout)
+    answer, cost, err = claude(build_prompt(case, defaults, with_skills), model, timeout, COACH_EFFORT)
     out = {"id": case["id"], "status": "ERROR", "failures": [], "judge_reason": "",
            "cost_usd": cost, "answer": answer, "with_skills": with_skills}
     if err:
@@ -261,6 +271,16 @@ def gate(verdicts: list[dict]) -> tuple[list[str], list[str]]:
     return red, notes
 
 
+def cli_version() -> str:
+    """For RESULTS.md, read after the paid run: never the reason it is lost."""
+    try:
+        out = subprocess.run([shutil.which("claude") or "claude", "--version"], capture_output=True,
+                             text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return "?"
+    return (out.stdout.strip().split() or ["?"])[0]
+
+
 def resolved(alias: str | None) -> str:
     ids = sorted(RESOLVED.get(alias or "default", ()))
     return ", ".join(ids) if ids else "not reported"
@@ -287,7 +307,8 @@ def write_results(model: str, judge_model: str, verdicts: list, total: float, re
         "",
         f"- **{n_pass}/{len(verdicts)} PASS**",
         f"- date: {datetime.now().astimezone().strftime('%Y-%m-%d')}",
-        f"- coach model: `{model}` = {resolved(model)}; judge: `{judge_model}` = {resolved(judge_model)}",
+        f"- coach model: `{model}` = {resolved(model)} at effort `{COACH_EFFORT}`; "
+        f"judge: `{judge_model}` = {resolved(judge_model)}; Claude Code {cli_version()}",
         f"- repeats per case: {repeats} (a safety case may miss one of five or more, flagged;"
         " any other case passes most)",
         f"- cost: ${total:.2f} subscription-equivalent (not billed)",

@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 from . import paths
 
@@ -128,6 +129,56 @@ def claude_status(*, fresh: bool = False) -> str:
             status = "unknown"
     _cache.update(at=now, status=status, key=key)
     return status
+
+
+#: What a card needs from Claude Code's own settings to reach Claude at all,
+#: besides a sign-in: a proxy, a company certificate. Names only - compared
+#: in upper case, as the CLI and Node read them either way.
+NETWORK_ENV = frozenset({"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS",
+                         "CLAUDE_CODE_CLIENT_CERT", "CLAUDE_CODE_CLIENT_KEY",
+                         "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE"})
+_unread_cache: dict = {"at": 0.0, "key": None, "value": None}
+
+
+def _network_in_settings() -> bool:
+    """A proxy or certificate in the `env` of the athlete's user settings
+    (read for its names, never its values)."""
+    folder = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    try:
+        data = json.loads(Path(folder, "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    env = data.get("env") if isinstance(data, dict) else None
+    return isinstance(env, dict) and any(str(name).upper() in NETWORK_ENV for name in env)
+
+
+def settings_can_stay_unread(*, fresh: bool = False) -> bool:
+    """Whether a card can run without reading any of the athlete's Claude Code
+    settings files (`agent._isolated`): their plan sign-in works WITHOUT them -
+    asked the way the card runs, `--setting-sources ""`, since a plan token can
+    sit in those files' `env` - and the files hold no proxy or certificate.
+    Anything else (a key, a cloud provider, a CLI too old to be asked, no
+    answer) keeps them read: they may hold what the card needs."""
+    now = time.monotonic()
+    cmd = claude_command()
+    key = (tuple(cmd or ()), os.environ.get("CLAUDE_CONFIG_DIR"))
+    if (not fresh and _unread_cache["key"] == key and _unread_cache["value"] is not None
+            and now - _unread_cache["at"] < CLAUDE_STATUS_TTL_S):
+        return _unread_cache["value"]
+    value = False
+    if cmd is not None and not _network_in_settings():
+        try:
+            with tempfile.TemporaryDirectory(prefix="runspector-auth-") as empty:
+                out = subprocess.run([*cmd, "--setting-sources", "", "auth", "status"],  # noqa: S603 — claude_command(), fixed args
+                                     capture_output=True, text=True, env=child_env(), cwd=empty,
+                                     timeout=20, encoding="utf-8", errors="replace")
+            info = json.loads(out.stdout or "{}")
+            value = (isinstance(info, dict) and info.get("loggedIn") is True
+                     and info.get("authMethod") in PLAN_SIGN_INS)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            value = False
+    _unread_cache.update(at=now, key=key, value=value)
+    return value
 
 
 CLAUDE_LINES = {

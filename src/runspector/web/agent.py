@@ -33,7 +33,7 @@ from pathlib import Path
 
 from .. import __version__, evidence, garmin, logic, paths, plan, tools
 from .. import profile as profile_mod
-from ..onboarding import child_env, strips_billing  # noqa: F401 — strips_billing: doctor and tests read it here
+from ..onboarding import child_env, settings_can_stay_unread, strips_billing  # noqa: F401 — strips_billing: doctor and tests read it here
 from . import jobs
 
 log = logging.getLogger(__name__)
@@ -156,6 +156,57 @@ _MARKER_RE = re.compile(r"-{3,}|<{2,}|>{2,}|\b(?:END|BEGIN)\s+[A-Z]{3,}\b"
 #: app's own evals before the switch (evals/MODELS.md).
 COACH_MODEL = "sonnet"
 VERIFY_MODEL = "sonnet"
+#: The effort every coach and check run asks for. Not left to the athlete's
+#: Claude Code: their setting (or a changed CLI default) would change the
+#: coach's answers and its wait without a line here moving. The evals run with
+#: the same value (`evals/run_evals.py`). `RUNSPECTOR_EFFORT` overrides, with
+#: one of EFFORTS - anything else the CLI would only warn about and replace by
+#: its own default, the athlete's setting again.
+COACH_EFFORT = "medium"
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+def isolation(effort: str) -> str:
+    """The settings a coach or check run passes: what it takes from the
+    athlete's own Claude Code is the sign-in, and nothing else that shapes an
+    answer. With a plan sign-in no settings file is read at all (`_isolated`);
+    these overrides are what holds when one is - a key or a cloud provider may
+    live in those files - and on a CLI too old for that. Each key measured on
+    CLI 2.1.317. One invalid VALUE silently voids all of them; an unknown
+    (renamed) key is ignored alone - `scripts/cli_canary.py` plants each of
+    these in a throw-away home weekly and reads the request the CLI sends:
+
+    - instructions: their CLAUDE.md, CLAUDE.local.md and AGENTS.md files
+      anywhere above the run (a built-in plugin reads AGENTS.md; a world-
+      writable /tmp is above every Linux run), their rules (also in a
+      CLAUDE_CONFIG_DIR not called .claude), auto memory;
+    - a main-thread `agent` from their settings, whose prompt would replace
+      the coach's whole system prompt, and `ultracode`;
+    - their language and output style ("always answer in German" is a setting
+      too) - English, the language the app's coach speaks today;
+    - their hooks and claude.ai connectors;
+    - an `auto` permission mode from their settings: plain, so only the tools
+      the command allows run;
+    - the effort, also as CLAUDE_CODE_EFFORT_LEVEL, which beats `--effort`
+      when the athlete's shell or settings set it; CLAUDE_CODE_EXTRA_BODY,
+      which can rewrite any field of the request; an output-token cap (a low
+      one cuts the card's JSON) and switched-off thinking - an empty value is
+      the CLI's default.
+
+    Not held when their settings ARE read (docs/architecture.md): a
+    `maxEffortLevel` below ours (the lowest wins), a `fallbackModel` or model
+    mapping (each card records the model it ran on), third-party plugins."""
+    excludes = ["**/CLAUDE.md", "**/CLAUDE.local.md", "**/AGENTS.md", "**/.claude/rules/**"]
+    if config := os.environ.get("CLAUDE_CONFIG_DIR", "").strip():
+        excludes.append(config.replace("\\", "/").rstrip("/") + "/rules/**")
+    return json.dumps({"claudeMdExcludes": excludes,
+                       "enabledPlugins": {"cc-plugin-agents-md@builtin": False},
+                       "autoMemoryEnabled": False, "disableAllHooks": True,
+                       "disableClaudeAiConnectors": True,
+                       "language": "english", "outputStyle": "default",
+                       "permissions": {"defaultMode": "default"},
+                       "agent": "", "ultracode": False,
+                       "env": {"CLAUDE_CODE_EFFORT_LEVEL": effort, "CLAUDE_CODE_EXTRA_BODY": "{}",
+                               "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "", "CLAUDE_CODE_DISABLE_THINKING": ""}})
 VERIFY_TIMEOUT_S = 120
 
 
@@ -301,6 +352,22 @@ def verify_facts(facts: list[str], athlete_words: str, earlier: str = "", job_id
 
 
 def _check_once(prompt: str, job_id: str = "") -> tuple[int, str]:
+    """The check's run, made again without an option this Claude Code refuses
+    (`_OPTIONAL`): an older CLI would otherwise fail every check on the option
+    alone, and nothing the athlete said would ever be kept."""
+    for _ in range(len(_OPTIONAL) + 1):
+        rc, out, err = _check_attempt(prompt, job_id)
+        flag = _refused_option(rc, err)
+        if not flag:
+            if old := _too_old(err):
+                log.warning("the check did not run: %s", old)
+            return rc, out
+        _OPTIONAL[flag] = False
+        log.warning("this Claude Code does not know %s; running the check without it", flag)
+    return rc, out
+
+
+def _check_attempt(prompt: str, job_id: str = "") -> tuple[int, str, str]:
     """One `claude --print` for the check: no tool and no MCP server at all -
     not even the athlete's own from their Claude Code settings, this call reads
     two texts. Run like a card's (`_run_once`): its own process group, killed
@@ -313,16 +380,15 @@ def _check_once(prompt: str, job_id: str = "") -> tuple[int, str]:
         workdir = Path(tmp)
         cfg = workdir / "mcp.json"
         cfg.write_text('{"mcpServers": {}}', encoding="utf-8")
-        cmd = [*base, "--print", "--output-format", "json",
-               *(["--no-session-persistence"] if _SESSION_FLAG[0] else []),
+        cmd = [*base, "--print", "--output-format", "json", *_isolated(),
                "--strict-mcp-config", "--mcp-config", str(cfg), "--tools", "",
                "--model", os.environ.get("RUNSPECTOR_VERIFY_MODEL") or VERIFY_MODEL]
         kwargs = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
                   else {"start_new_session": True})
-        out_p = workdir / "out.txt"
-        with open(out_p, "w", encoding="utf-8") as out_f:
+        out_p, err_p = workdir / "out.txt", workdir / "err.txt"
+        with open(out_p, "w", encoding="utf-8") as out_f, open(err_p, "w", encoding="utf-8") as err_f:
             proc = subprocess.Popen(cmd, cwd=str(workdir), stdin=subprocess.PIPE,  # noqa: S603 — our argv
-                                    stdout=out_f, stderr=subprocess.DEVNULL, env=child_env(), **kwargs)
+                                    stdout=out_f, stderr=err_f, env=child_env(), **kwargs)
             _current[0] = proc
             try:
                 threading.Thread(target=_feed, args=(proc, prompt), daemon=True,
@@ -341,7 +407,8 @@ def _check_once(prompt: str, job_id: str = "") -> tuple[int, str]:
                 if proc.poll() is None:
                     _kill_tree(proc)
                 _current[0] = None
-        return rc, out_p.read_text(encoding="utf-8", errors="replace")
+        return (rc, out_p.read_text(encoding="utf-8", errors="replace"),
+                err_p.read_text(encoding="utf-8", errors="replace")[-4000:])
 
 
 def kept_facts(raw, athlete_words: str | None, earlier: str = "", job_id: str = "") -> list[dict]:
@@ -547,13 +614,59 @@ WRITE_TOOL = WRITE_TOOLS[0]
 DENIED_TOOLS = tuple(f"mcp__runspector__{n}" for n in tools.UNATTENDED_DENIED)
 
 
-#: Whether the CLI takes `--no-session-persistence`. An older Claude Code
-#: refuses an option it does not know; the first refusal turns the flag off
-#: for this process (`run`), so a card is never lost to it.
-_SESSION_FLAG = [True]
+#: The options an older Claude Code may not know. It refuses an option it does
+#: not know ("unknown option"); the first refusal turns that option off for
+#: this process and the run goes on without it (`run`, `_check_once`), so a
+#: card is never lost to a version difference. Not `--settings`: it carries the
+#: isolation, and a run without it is a run with the athlete's own context - a
+#: CLI that old fails the card with a word to update it (`_too_old`).
+_OPTIONAL = {"--no-session-persistence": True, "--setting-sources": True, "--disable-slash-commands": True,
+             "--effort": True}
+_REFUSED = re.compile(r"unknown option '(--[\w-]+)'", re.I)
 
 
-def command(workdir: Path, db: str | None) -> list[str]:
+def _opt(flag: str, *value: str) -> list[str]:
+    return [flag, *value] if _OPTIONAL.get(flag) else []
+
+
+def _isolated(unread_settings: bool | None = None) -> list[str]:
+    """The options that keep the athlete's own Claude Code out of a run.
+
+    `--setting-sources ""`: none of their settings files is read - nor their
+    CLAUDE.md, rules, agents, plugins, model mapping or effort limits;
+    measured on 2.1.311 and 2.1.317. Only when the card needs nothing from
+    those files (`onboarding.settings_can_stay_unread`: a plan sign-in that
+    works without them, no proxy in them). Otherwise - a key, a cloud
+    provider, a plan token kept in their `env` - they are read, and
+    `isolation()` is what holds."""
+    effort = os.environ.get("RUNSPECTOR_EFFORT", "").strip().lower()
+    effort = effort if effort in EFFORTS else COACH_EFFORT
+    if unread_settings is None:
+        unread_settings = settings_can_stay_unread()
+    sources = _opt("--setting-sources", "") if unread_settings else []
+    return [*_opt("--no-session-persistence"), *sources, "--settings", isolation(effort),
+            *_opt("--disable-slash-commands"), *_opt("--effort", effort)]
+
+
+def _refused_option(rc: int, err: str) -> str | None:
+    """The optional flag this CLI refused, if that is why the run failed: the
+    one the error names, not one a "(Did you mean --x?)" after it names."""
+    m = _REFUSED.search(err) if rc != 0 else None
+    return m.group(1) if m and _OPTIONAL.get(m.group(1)) else None
+
+
+def _too_old(err: str) -> str | None:
+    """A failure that is this Claude Code being too old for the app, in words."""
+    m = _REFUSED.search(err)
+    if not m or _OPTIONAL.get(m.group(1)) is not None:
+        return None
+    # Either side can be behind: an old CLI never had the option, a new one may
+    # have renamed it - the canary (scripts/cli_canary.py) sees the second.
+    return (f"this Claude Code does not know {m.group(1)}, which runspector passes: update Claude Code "
+            "(`claude update`) and ask again - if it is already current, runspector needs an update for it")
+
+
+def command(workdir: Path, db: str | None, *, unread_settings: bool | None = None) -> list[str]:
     cfg = workdir / "mcp.json"
     cfg.write_text(json.dumps(mcp_config(db, demo=bool(db and Path(db).name == "demo.db"))),
                    encoding="utf-8")
@@ -570,8 +683,9 @@ def command(workdir: Path, db: str | None) -> list[str]:
     # `--no-session-persistence`: Claude Code would otherwise keep the whole
     # session, every tool result, in its own folder - outside the card's
     # record, untouched when the card or the record is deleted.
-    cmd = [*base, "--print", "--output-format", "stream-json", "--verbose",
-           *(["--no-session-persistence"] if _SESSION_FLAG[0] else []),
+    # `_isolated()`: the athlete's settings files, CLAUDE.md, memory, hooks,
+    # connectors and permission mode stay out, the effort is the coach's.
+    cmd = [*base, "--print", "--output-format", "stream-json", "--verbose", *_isolated(unread_settings),
            "--strict-mcp-config", "--mcp-config", str(cfg),
            "--tools", "", "--allowedTools", "mcp__runspector",
            # The tools that write to Garmin stay out of reach of an
@@ -822,10 +936,10 @@ def _run(job: dict, *, db: str | None, snapshot_meta: dict | None,
             return _finish(job, "cancelled", rc, "cancelled")
         if rc == TIMED_OUT:
             return _finish(job, "timeout", rc, f"no answer within {TIMEOUT_S}s")
-        refused = "--no-session-persistence" in err and "unknown option" in err.lower()
-        if rc != 0 and _SESSION_FLAG[0] and refused:
-            _SESSION_FLAG[0] = False
-            log.warning("this Claude Code does not know --no-session-persistence; running without it")
+        flag = _refused_option(rc, err)
+        if flag:
+            _OPTIONAL[flag] = False
+            log.warning("this Claude Code does not know %s; running without it", flag)
             continue
         # Only the run's own words - its final event whole, as before the session
         # was streamed (an error event says it in `errors`) - never the tools',
@@ -856,6 +970,8 @@ def _run(job: dict, *, db: str | None, snapshot_meta: dict | None,
         # but silently skipped the is_error and num_turns guards below — fail-open
         # on exactly the check that proves a card was backed by real data. If the
         # process also failed, its own error is the more useful summary.
+        if old := _too_old(err):
+            return _finish(job, "failed", rc, old, None)
         return _finish(job, "failed", rc,
                        (err or plain).strip()[-300:]
                        or "claude did not return a JSON envelope - see the job log", None)

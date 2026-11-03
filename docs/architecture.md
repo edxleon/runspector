@@ -80,12 +80,44 @@ dir. Since v0.2 the server also carries the one tool that writes to Garmin (`app
 passes `--disallowedTools mcp__runspector__apply_workout`. A card may *propose* a session; applying it is a
 human's click on the card or their answer in a Claude Code session, where the flag is not set. Both the
 flag and the fact that it names a registered tool are pinned by tests, because a flag that denies a tool
-nobody registers denies nothing. What that does *not* exclude is the host's own Claude Code configuration: user-level `CLAUDE.md`
-is still loaded, and user-level or plugin `SessionStart`/`SubagentStart` hooks still fire in every
-`claude --print`. That is host-owned config rather than anything an injected workout title can reach,
-so the claim "an injected label cannot reach anything but this app's own tools" holds — but a
-compromised Claude Code plugin runs in every card job, and the sentence "empty temp directory" should
-not be read as more isolation than that.
+nobody registers denies nothing. The host's own Claude Code configuration is kept out too
+(`agent._isolated()`, `agent.isolation()`), in two layers:
+
+- **When the card needs nothing from the athlete's settings files**
+  (`onboarding.settings_can_stay_unread`: their plan sign-in works without them - asked the way the
+  card runs, `claude --setting-sources "" auth status` - and the files hold no proxy or certificate),
+  every card and check run passes `--setting-sources ""`: none of those files is read, and with them
+  none of their `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, rules, agents, plugins, hooks, language,
+  output style, permission mode, model mapping, fallback model or effort limit. Measured on CLIs
+  2.1.311 and 2.1.317 against a home holding all of them: nothing of it in the request, Sonnet at the
+  coach's effort.
+- **Otherwise** - a key or a cloud provider (`apiKeyHelper`, a provider in their `env`), a plan token
+  kept in their `env`, a proxy, a CLI too old to be asked - the files may hold what the card needs to
+  reach Claude, so they are read and overrides hold instead: no instruction file anywhere
+  above the run (a world-writable `/tmp` is above every Linux run), no rules (also in a
+  `CLAUDE_CONFIG_DIR` not called `.claude`), no auto memory, hooks, claude.ai connectors, main-thread
+  agent or ultracode, no language or output style of theirs, the plain permission mode, and
+  `CLAUDE_CODE_EXTRA_BODY`, an output-token cap and switched-off thinking reset to the CLI's default
+  (also against the athlete's shell). Not held there: a `maxEffortLevel` below the coach's (the lowest
+  wins), a model mapping or `fallbackModel` (each card records the model it ran on), and a third-party
+  plugin's forced output style.
+
+Both pass the coach's effort (`COACH_EFFORT`, also as `CLAUDE_CODE_EFFORT_LEVEL`, which beats
+`--effort`; an unknown `RUNSPECTOR_EFFORT` falls back to it, since the CLI would only warn) and no skills
+or commands. What stays either way: the sign-in, the CLI's own built-in plugins, a shell variable the
+app neither strips (`onboarding.child_env`) nor resets, and the account's e-mail address, which the
+CLI's default system prompt carries and no setting removes.
+
+An older CLI that refuses `--setting-sources`, `--effort`, `--disable-slash-commands` or
+`--no-session-persistence` gets the run without it (`agent._OPTIONAL`); one that refuses `--settings`
+fails the card with a word to update Claude Code - or, if it is current, runspector. One invalid value
+in `--settings` voids all of it, an unknown key is ignored alone, so the override layer is complete only
+on a current CLI. `scripts/cli_canary.py` checks weekly, in a container, with the newest CLI: that `-p`
+has not turned bare (bare mode never reads the Claude sign-in); that the app's own card command starts
+and none of its options or values is refused; and - against a throw-away home holding all of the above,
+with the requests recorded locally - that a run without isolation is sent every planted marker, a card
+that leaves the settings unread none, and one that reads them none but the model mapping and the effort
+cap, which only unread settings keep out.
 
 **A card is deletable, and that matters.** `cleanup_cards()` pins the newest card of each kind forever
 (it is the dedup anchor and the memory of the next run) and `previous_card_block()` feeds it into every

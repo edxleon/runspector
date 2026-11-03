@@ -1,0 +1,56 @@
+name: canary
+
+# Does the NEWEST Claude Code still run a coach card the way this app needs?
+# (scripts/cli_canary.py) - whether `claude -p` turned into bare mode, which
+# never reads the Claude sign-in and would fail every athlete's every card;
+# whether the app's own card command still starts with every option it passes;
+# and whether a card is still sent nothing of the athlete's own Claude Code
+# (CLAUDE.md, rules, agent, language, hooks ... planted in a throw-away home).
+# Weekly, so a release shows here before it reaches the athletes' machines.
+#
+# The CLI is the latest on purpose - that is the point. It runs inside a
+# container: an npm package on the runner itself could read the Actions runtime
+# token from the runner's memory (passwordless sudo) and write caches of main
+# that ci.yml, sweep.yml and mutation.yml restore. The container gets no token,
+# no environment variable of the job, no Docker socket and only the one folder
+# it writes its output to; it runs as the runner's user, not root, and with no
+# Claude sign-in at all - the planted runs send their requests to a recorder
+# inside the container, with a dummy key. The base image is pinned by digest.
+# This repository's code writes the commands before and judges the output
+# after, on the runner, from uv.lock; the judge follows no link and prints no
+# line break of what came back.
+
+on:
+  schedule:
+    - cron: "11 6 * * 1"     # Mondays, 06:11 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: canary
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25          # nine runs, each with a time limit; healthy ones take seconds
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: false
+      - name: The app's card command, written by this repository's code
+        run: uv run --python 3.12 --locked python scripts/cli_canary.py --write "$RUNNER_TEMP/canary"
+      - name: The newest Claude Code runs it, in a container that cannot reach this runner
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -v "$RUNNER_TEMP/canary:/canary" \
+            -e HOME=/tmp -e npm_config_prefix=/tmp/npm -e npm_config_cache=/tmp/npm-cache \
+            node:22-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da \
+            sh -c 'npm install -g --silent @anthropic-ai/claude-code@latest > /canary/npm.log 2>&1 && PATH="/tmp/npm/bin:$PATH" sh /canary/run.sh'
+      - name: What came back
+        run: uv run --python 3.12 --locked python scripts/cli_canary.py --judge "$RUNNER_TEMP/canary"

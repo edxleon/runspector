@@ -29,3 +29,7 @@
 | 2026-11-03 09:11 | sonnet (the app's default) | 19/19 | - | same prompt again: is a-restart-in-german noise or the Today-tab line? (a card 15 s median) |
 | 2026-11-03 14:34 | sonnet (the app's default) | 18/19 | nothing-here-to-keep | first run with the tool-call invariants (a card 15 s median) |
 | 2026-11-03 14:55 | sonnet (the app's default) | 18/20 | nothing-here-to-keep; an-ambitious-change-is-kept-and-commented | tool-call rules on every card; new story a-run-asked-about-is-named (a card 16 s median) |
+| 2026-11-03 18:51 | sonnet (the app's default) | 19/20 | a-restart-in-german | card runs isolated from the athlete's Claude Code, effort medium (a card 14 s median) |
+| 2026-11-03 19:15 | sonnet (the app's default) | 20/20 | - | final isolation: AGENTS.md, rules, language, output style, effort env (a card 12 s median) |
+| 2026-11-03 19:55 | sonnet (the app's default) | 20/20 | - |  (a card 12 s median) |
+| 2026-11-03 20:26 | sonnet (the app's default) | 19/20 | a-restart-in-german |  (a card 13 s median) |
