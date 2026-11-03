@@ -37,6 +37,7 @@ the pull request; a lower floor or a lost safety case is red. A Biome version bu
 | a rule in `logic.py`, `planning.py`, `plan.py` or `habits.py` | a scenario test in `tests/test_what_comes_next.py`, red against the old code first; then `RUNSPECTOR_SIM_SEEDS=40 uv run pytest -q tests/test_simulation.py`; a week that moves without habits fails `tests/test_build_week_golden.py` - regenerate it only when that is the point. The weekly `mutation.yml` lists the mutants of these files no test kills: a survivor in the function you changed is the test you still owe |
 | the number of tests or eval cases | README count and badge - pinned by `tests/test_invariants.py` |
 | a Garmin endpoint | `tests/test_api_contract.py` |
+| a function that reads outside data (a Garmin value, a model's answer, a date) | a property in `tests/test_properties.py` (Hypothesis): what must hold for any input, not three examples; a failing example becomes a plain test beside it |
 | an MCP tool added or removed | the tool sets in `tests/test_tools.py` and `tests/test_web.py`, the README diagram, and `EXPECTED_TOOLS` in `scripts/install_check.py` (CI's install job - not run by the pre-push hook) |
 | a migration | `tests/test_migrations.py`; columns in `models.py` |
 
