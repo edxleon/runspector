@@ -32,6 +32,8 @@ from pathlib import Path
 
 import yaml
 
+from runspector import tools
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import run_evals  # noqa: E402 - the judge, shared with the coach evals
@@ -169,6 +171,36 @@ def _proposal_fails(srv: Server, card: dict, want: dict) -> list[str]:
     return fails
 
 
+def call_fails(calls: list[dict]) -> list[str]:
+    """The coach's tool calls against the rules a card run must keep, checked by
+    code (the coach evals run tool-free and cannot see them; evals/README.md).
+    Invariants, not a fixed sequence: the order of the reads after the first is
+    the coach's to choose.
+
+    - the day is read first: the first call is `get_training_readiness`;
+    - after `sync_garmin` the day is read again - the sync changed it;
+    - `analyze_workout` names its run: without `day` or `activity_id` it returns
+      the latest run with detail, on the same day usually yesterday's;
+    - a tool an unattended card run may not use (`tools.UNATTENDED_DENIED`) is
+      not even tried: the command line denies it, but a try means the prompt
+      steered the coach towards a write."""
+    names = [str(c.get("tool") or "") for c in calls]
+    fails = []
+    if names and names[0] != "get_training_readiness":
+        fails.append(f"first tool call was {names[0]}, not get_training_readiness")
+    for i, name in enumerate(names):
+        if name == "sync_garmin" and "get_training_readiness" not in names[i + 1:]:
+            fails.append("sync_garmin was not followed by get_training_readiness")
+            break
+    for c in calls:
+        if c.get("tool") == "analyze_workout" and not ({"day", "activity_id"} & set(c.get("input") or {})):
+            fails.append("analyze_workout without day or activity_id")
+    tried = sorted({n for n in names if n in tools.UNATTENDED_DENIED})
+    if tried:
+        fails.append(f"tried a tool card runs may not use: {', '.join(tried)}")
+    return fails
+
+
 def run_story(story: dict, defaults: dict) -> dict:
     timeout = int(defaults.get("timeout_sec", 600))
     out = {"id": story["id"], "steps": [], "failures": []}
@@ -240,8 +272,13 @@ def run_story(story: dict, defaults: dict) -> dict:
                 for sub in step.get("prompt_has") or []:
                     if sub not in prompt:
                         fails.append(f"the coach's task lacks {sub!r}")
-                given = str(((srv.read("evidence", f"{job.get('id')}.json") or {}).get("inputs") or {})
-                            .get("told") or "")
+                evidence = srv.read("evidence", f"{job.get('id')}.json") or {} if job.get("id") else {}
+                given = str((evidence.get("inputs") or {}).get("told") or "")
+                calls = evidence.get("calls") if isinstance(evidence.get("calls"), list) else []
+                if job.get("status") == "done":
+                    fails += [f"tool calls: {f}" for f in call_fails(calls)]
+                    called = {c.get("tool") for c in calls}
+                    fails += [f"never called {t}" for t in step.get("calls_include") or [] if t not in called]
                 for rx in step.get("given_lacks") or []:
                     if re.search(rx, given, re.I):
                         fails.append(f"the coach was given {rx!r}: {given!r}")
@@ -255,6 +292,7 @@ def run_story(story: dict, defaults: dict) -> dict:
                     if not passed:
                         fails.append(f"judge: {why}")
                 out["steps"].append({"n": n, "ok": not fails, "fails": fails, "judge": note, "secs": secs,
+                                     "calls": [c.get("tool") for c in calls] if "forget" not in step else [],
                                      "answer": _answer(card) if card else "", "kept": texts,
                                      "check_in": card.get("check_in"), "next": card.get("next")})
                 out["failures"] += [f"step {n}: {f}" for f in fails]
