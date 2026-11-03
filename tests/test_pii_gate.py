@@ -183,6 +183,27 @@ def test_the_citation_exemption_covers_only_the_citation(tree):
     assert rc == 1 and "German leftover" in out, out
 
 
+def test_a_commit_hash_is_not_a_leak(tree):
+    """Every action is pinned to a commit SHA, and scorecard-action's v2.5.0 is
+    `fa7117db83c52d787ae5a89f350999701505d78e`: twelve digits between two
+    letters, which the chat-id rule read as an id and which would have stopped
+    every push and every release tag. A 40- or 64-character hex hash is cut
+    out before the line is scanned - an id next to it is still found, and so
+    is a number that only looks like part of one."""
+    (tree / "docs" / "ci.yml").write_text(
+        "- uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0\n"
+        "digest sha256:2665883d3176235613b5c22951ae358699970150502d7ed06f2447ccc7904321\n",
+        encoding="utf-8")
+    rc, out = run_gate(tree)
+    assert rc == 0, out
+
+    (tree / "docs" / "ci.yml").write_text(
+        "- uses: a/b@fa7117db83c52d787ae5a89f350999701505d78e # ask user 700100200300\n"
+        "not a hash: 350999701505abc\n", encoding="utf-8")
+    rc, out = run_gate(tree)
+    assert rc == 1 and "700100200300" in out and "350999701505" in out, out
+
+
 def test_an_encoded_home_path_is_a_home_path(tree):
     """Tools write a home directory as a folder NAME too (`-Users-someone-...`,
     the way an editor or an agent names a per-project directory). The slash

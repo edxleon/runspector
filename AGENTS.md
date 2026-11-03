@@ -60,7 +60,9 @@ maintainer's word.
    `@vX.Y.Z` install pin in the README; `uv lock`. Notes in `docs/releases/vX.Y.Z.md`. A PR.
 2. After the merge: `git switch main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z` -
    `.github/workflows/release.yml` checks the versions agree, runs the suite, builds, attests and
-   publishes. Release only on the maintainer's word.
+   publishes. Release only on the maintainer's word. Releases are immutable once published (tag and
+   files locked): after a failed run, re-run the failed jobs; a fix to the release itself is a new
+   version.
 
 ## Style
 
