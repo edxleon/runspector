@@ -200,10 +200,11 @@ def write(out: Path, *, inside: str = "/canary", claude: str = "claude") -> None
         "sleep 1",
         f'export HOME="{inside}/planted" CLAUDE_CONFIG_DIR="{planted_cfg}"',
     ]
+    # The dummy key is not shaped like a real one: secret scanners flag that.
     for name, cmd in runs.items():
         for project, to in (("proj", ">"), ("agents", ">>")):
             lines.append(f'cd "{inside}/planted/{project}/work" && echo \'say ok\' | '
-                         f"ANTHROPIC_API_KEY=sk-ant-api03-canary-not-a-key "
+                         f"ANTHROPIC_API_KEY=canary-dummy-not-a-key "
                          f"ANTHROPIC_BASE_URL=http://127.0.0.1:{PORT}/{name} timeout 60 {shlex.join(cmd)} "
                          f"{to} {inside}/planted-{name}.jsonl 2{to} {inside}/planted-{name}.err")
     lines += ['kill "$CAPTURE"', "exit 0"]
