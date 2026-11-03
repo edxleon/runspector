@@ -6,6 +6,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "cli_canary.py"
 spec = importlib.util.spec_from_file_location("cli_canary", SCRIPT)
 canary = importlib.util.module_from_spec(spec)
@@ -68,9 +70,12 @@ def _outputs(folder: Path, card_err: str = "") -> None:
     (folder / "card.err").write_text(card_err, encoding="utf-8")
 
 
-def test_the_judge_follows_no_link_the_container_left(tmp_path, capsys):
+@pytest.mark.parametrize("nofollow", [True, False], ids=["posix", "no-O_NOFOLLOW-like-windows"])
+def test_the_judge_follows_no_link_the_container_left(tmp_path, capsys, monkeypatch, nofollow):
     """The judge runs on the runner, the files come from the newest npm package
     in the container: a link there would print a runner file into the public log."""
+    if not nofollow:
+        monkeypatch.delattr(canary.os, "O_NOFOLLOW", raising=False)
     secret = tmp_path / "runner-only.txt"
     secret.write_text("RUNNER-SECRET\n", encoding="utf-8")
     out = tmp_path / "canary"

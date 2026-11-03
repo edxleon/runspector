@@ -122,6 +122,9 @@ def read(path: Path) -> str | None:
     regular file. The judge runs on the runner: a link the container left would
     point it at a runner file and print that into the public log."""
     try:
+        # Windows has no O_NOFOLLOW: the lstat keeps a link out there too.
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            return None
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     except OSError:
         return None
@@ -157,7 +160,9 @@ def _card(out: Path, inside: str, claude: str, *, unread: bool, config_dir: str 
         os.environ.pop("CLAUDE_CONFIG_DIR", None)
         if kept is not None:
             os.environ["CLAUDE_CONFIG_DIR"] = kept
-    return [claude, *(a.replace(str(out), inside) for a in cmd[1:])]
+    # a Windows host path keeps its backslashes after the folder: the mount wants slashes
+    return [claude, *(a.replace(str(out), inside).replace(os.sep, "/") if str(out) in a else a
+                      for a in cmd[1:])]
 
 
 def _without(cmd: list[str], *flags: str) -> list[str]:
