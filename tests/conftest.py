@@ -38,7 +38,7 @@ def _isolated_env(tmp_path, monkeypatch):
     monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path / "home"))
     for name in ("RUNSPECTOR_DB", "RUNSPECTOR_ACTIVITY_BACKFILL_DAYS", "RUNSPECTOR_LT_HISTORY_DAYS",
                  "RUNSPECTOR_GARMIN_TOKENS", "RUNSPECTOR_DEMO", "RUNSPECTOR_TOKEN",
-                 "RUNSPECTOR_CLAUDE_CMD", "RUNSPECTOR_MODEL", "RUNSPECTOR_LOG"):
+                 "RUNSPECTOR_CLAUDE_CMD", "RUNSPECTOR_MODEL", "RUNSPECTOR_LOG", "RUNSPECTOR_EFFORT"):
         monkeypatch.delenv(name, raising=False)
     # `cli.main` names every old `RUNCOACH_X` and stops on RUNCOACH_HOME: one in
     # the developer's shell would change what a test prints or whether it runs.
@@ -50,6 +50,12 @@ def _isolated_env(tmp_path, monkeypatch):
     for name in [n for n in os.environ if strips_billing(n)]:
         monkeypatch.delenv(name)
     monkeypatch.delenv("RUNSPECTOR_ALLOW_API_KEY", raising=False)
+    # A card's command asks `claude auth status` whether it may leave the
+    # settings unread - the tests' stub CLIs would be asked too. Yes, unless a
+    # test says otherwise; and not the developer's own config folder.
+    from runspector.web import agent
+    monkeypatch.setattr(agent, "settings_can_stay_unread", lambda **_: True)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     # Not whatever `runcoach` the developer's own PATH holds: it would make the
     # move from runcoach-ai refuse in one test run and not in the next.
     monkeypatch.setattr(paths, "legacy_program", lambda: None)

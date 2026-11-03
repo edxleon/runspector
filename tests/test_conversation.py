@@ -166,6 +166,39 @@ def test_the_check_reads_their_words_with_no_tool_and_no_server(cli):
     assert "whenever you are not sure" in stdin
 
 
+def test_the_check_keeps_the_athletes_own_claude_code_out_too(cli, monkeypatch):
+    monkeypatch.setattr(agent, "_OPTIONAL", dict.fromkeys(agent._OPTIONAL, True))
+    cli('{"1": {"why": "only have 45 minutes", "keep": true}}')
+    assert _REAL_VERIFY(["Has 45 minutes on weekdays"], "On weekdays I only have 45 minutes.") == [True]
+    argv = json.loads((cli.dir / "argv.json").read_text())
+    assert json.loads(argv[argv.index("--settings") + 1]) == json.loads(agent.isolation(agent.COACH_EFFORT))
+    assert argv[argv.index("--effort") + 1] == agent.COACH_EFFORT and "--disable-slash-commands" in argv
+    assert argv[argv.index("--setting-sources") + 1] == "", "with a plan that needs none, no settings file"
+    monkeypatch.setattr(agent, "settings_can_stay_unread", lambda **_: False)
+    assert _REAL_VERIFY(["Has 45 minutes on weekdays"], "On weekdays I only have 45 minutes.") == [True]
+    assert "--setting-sources" not in argv_of(cli), "a sign-in kept in them"
+
+
+def argv_of(cli) -> list[str]:
+    return json.loads((cli.dir / "argv.json").read_text())
+
+
+def test_an_older_cli_still_checks_what_the_athlete_said(cli, monkeypatch):
+    """The check's run failed on an option this Claude Code does not know -
+    and a failed check keeps nothing, so nothing the athlete said would ever
+    be kept again. It runs once more without that option."""
+    monkeypatch.setattr(agent, "_OPTIONAL", dict.fromkeys(agent._OPTIONAL, True))
+    stub = cli.dir / "claude_stub.py"
+    stub.write_text("import sys\n"
+                    "if '--effort' in sys.argv:\n"
+                    "    sys.stderr.write(\"error: unknown option '--effort'\\n\")\n"
+                    "    sys.exit(1)\n"
+                    + stub.read_text(encoding="utf-8"), encoding="utf-8")
+    cli('{"1": {"why": "only have 45 minutes", "keep": true}}')
+    assert _REAL_VERIFY(["Has 45 minutes on weekdays"], "On weekdays I only have 45 minutes.") == [True]
+    assert agent._OPTIONAL["--effort"] is False and "--settings" in argv_of(cli)
+
+
 @pytest.mark.parametrize("result,kw", [
     ('{"1": true}', {}),                                 # one verdict for two facts
     ('{"1": true, "2": "yes"}', {}),                      # not a yes or no
