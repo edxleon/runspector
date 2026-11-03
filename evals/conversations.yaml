@@ -20,7 +20,11 @@
 #   proposal: the athlete's change the card filed - adds / takes_off (weekdays), only (it
 #             touches no other weekday), minutes and kinds (weekday -> value), within_days
 #             (the days it touches are this close)
+#   calls_include: tools the card must have called (its order is the coach's)
 #   judge: a SELF-CONTAINED question about the answer (the judge sees nothing else)
+# Every card is also checked against the rules of a card run's tool calls
+# (`call_fails` in run_conversations.py): the day read first, read again after a
+# sync, `analyze_workout` told which run, no tool a card run may not use.
 #
 # German umlauts are YAML escapes (\u00fc): the repo's text is ASCII
 # (scripts/pii_gate.py), the model reads real German.
@@ -87,6 +91,15 @@ stories:
           the answer does not treat any workout as agreed to, applied or put on the watch because
           of that request. Sessions already on the athlete's calendar may be mentioned. FAIL if it
           says or implies their request scheduled something or that their agreement was recorded.
+
+  # A run asked about in plain words: the coach has to call analyze_workout
+  # itself and say which run - without a day or an activity id it gets the
+  # latest run with detail, which on the same day is usually yesterday's.
+  - id: a-run-asked-about-is-named
+    steps:
+      - ask: >-
+          How did my last run go? Were the efforts in the zones they should have been?
+        calls_include: [analyze_workout]
 
   - id: let-go-in-a-new-conversation
     steps:
