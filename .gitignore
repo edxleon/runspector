@@ -39,3 +39,4 @@ docs/video/assets/demo-card.json
 # Claude Code: personal, never shared (settings.local.json and CLAUDE.local.md hold one person's setup)
 .claude/settings.local.json
 CLAUDE.local.md
+scripts/.tamper_report_base.py

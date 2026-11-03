@@ -94,6 +94,27 @@ def test_the_weekly_evals_run_every_week_and_repeat_each_case():
     assert "--repeats 5" in run
 
 
+def test_the_coachs_tool_calls_are_checked_against_the_rules_of_a_card_run():
+    calls = _module("run_conversations").call_fails
+
+    def c(tool, **inp):
+        return {"tool": tool, "input": inp}
+
+    good = [c("get_training_readiness"), c("sync_garmin"), c("get_training_readiness"),
+            c("analyze_workout", day="2026-11-02"), c("get_recent_activities")]
+    assert calls(good) == []
+    assert calls([]) == [], "no call is the card frame's business, not this check's"
+    assert calls([c("get_recent_activities"), c("get_training_readiness")]) == \
+        ["first tool call was get_recent_activities, not get_training_readiness"]
+    assert calls([c("get_training_readiness"), c("sync_garmin"), c("get_trend")]) == \
+        ["sync_garmin was not followed by get_training_readiness"]
+    assert calls([c("get_training_readiness"), c("analyze_workout")]) == \
+        ["analyze_workout without day or activity_id"]
+    assert calls([c("get_training_readiness"), c("analyze_workout", activity_id=7)]) == []
+    assert calls([c("get_training_readiness"), c("apply_workout", proposal_id="p-1"), c("check_in")]) == \
+        ["tried a tool card runs may not use: apply_workout, check_in"]
+
+
 def test_every_note_of_the_check_has_its_verdict():
     cases = yaml.safe_load((EVALS / "memory_check.yaml").read_text(encoding="utf-8"))["cases"]
     ids = [c["id"] for c in cases]
@@ -119,7 +140,7 @@ def test_every_conversation_step_is_one_action_with_known_checks():
     spec = yaml.safe_load((EVALS / "conversations.yaml").read_text(encoding="utf-8"))
     actions = {"ask", "follow", "template", "forget"}
     checks = {"while_pending", "memory_has", "memory_lacks", "memory_max", "check_in", "prompt_has",
-              "given_lacks", "proposal", "judge"}
+              "given_lacks", "proposal", "judge", "calls_include"}
     proposal_keys = {"adds", "takes_off", "only", "minutes", "kinds", "within_days"}
     ids = [s["id"] for s in spec["stories"]]
     assert len(ids) == len(set(ids))

@@ -62,7 +62,7 @@ naming:
 |---|---|
 | `src/runspector/templates.json` | the per-button task text (*Analyze this run*, *Review my week*) is rendered by the server and does not enter an eval run — with ONE exception: `plan-button-does-not-file-against-a-red-day` pastes the *Plan a session* text in as its input, because that is the prompt that can put a hard session in front of a one-tap write button |
 | the JSON-card frame in `web/agent.py` | card contract, length caps and the nonce-framed data blocks are checked by `tests/test_web.py` against a stubbed CLI; what a model does with the frame is measured end to end by `run_conversations.py` (below), not here |
-| the MCP round trip | cases paste tool output inline; nothing here proves the agent *calls* the right tool |
+| the MCP round trip | cases paste tool output inline; which tools a card calls, and how, is checked in the conversation suite (below) |
 
 Two more honest caveats: the suite runs `claude --safe-mode`, which **production cannot
 use** (the app needs its MCP server, and `--safe-mode` would drop it), and it runs
@@ -108,12 +108,15 @@ at 50 % measures the weather, not the prompt, so `red-day-swap-is-proposed-not-d
 only what it was built to ask (no hard session today, the swap goes through a proposal,
 nothing claimed removed) and the scheduling detail rides along as guidance.
 
-**And what nothing here covers.** The harness is tool-free by design, so every
-procedural instruction in `coach.md` is outside it: "call `get_training_readiness`
-first", "after `sync_garmin`, read it again", "always pass `day` or `activity_id` to
+**And where the tool calls are checked.** This harness is tool-free by design, so the
+procedural rules of `coach.md` are outside it: "call `get_training_readiness` first",
+"after `sync_garmin`, read it again", "always pass `day` or `activity_id` to
 `analyze_workout` — without them it returns the latest run *with detail*, which on the
 same day is usually yesterday's". Those are the rules whose violation produces a
-confidently wrong card about the wrong run, and no case can exercise them.
+confidently wrong card about the wrong run. The conversation suite checks them, by code,
+on every card it runs (`call_fails` in `run_conversations.py`, from the calls the card's
+record keeps), together with "no tool a card run may not use was even tried"; the story
+`a-run-asked-about-is-named` makes the coach call `analyze_workout` on its own.
 
 ## How a case runs
 
