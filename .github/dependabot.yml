@@ -12,6 +12,11 @@ updates:
     # readable by a human.
     commit-message:
       prefix: "ci"
+    # One PR a week for all of them: one PR per action and package had seven
+    # piled up at once, every one green and none merged.
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: uv
     directory: /
     schedule:
@@ -20,6 +25,12 @@ updates:
     # the change that needs a human to run `runspector sync` once before merging.
     commit-message:
       prefix: "deps"
+    # The tools and the small pins together; the two that change behaviour
+    # stay single, each a decision of its own (see the comments around them).
+    groups:
+      tools-and-pins:
+        patterns: ["*"]
+        exclude-patterns: ["garminconnect", "mcp"]
     ignore:
       # `pyproject.toml` pins `mcp<2` on purpose: 2.x renamed FastMCP and
       # changed the server API. Dependabot's very first PR proposed 2.2.0

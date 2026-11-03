@@ -45,15 +45,16 @@ runspector = "runspector.cli:main"
 dev = [
     "pytest>=8",
     "pytest-cov>=7",
+    "pytest-timeout>=2.3",
     "pyyaml>=6",
     "ruff>=0.14",
 ]
 mutation = [
-    "mutmut==3.5.0",
+    "mutmut==3.8.1",
 ]
 
 [build-system]
-requires = ["hatchling==1.32.4"]   # exact: it runs in the release build
+requires = ["hatchling==1.33.0"]   # exact: it runs in the release build
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -61,6 +62,10 @@ packages = ["src/runspector"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A hanging test (headless Chrome on a macOS runner never returned, once) used to
+# run into the CI job's limit and end with no name and no stack. Per test, the
+# slowest takes ~5 s here and ~25 s on the slowest runner: 300 s is a hang.
+timeout = 300
 
 # The `# noqa:` markers in the source refer to these rules — without the section
 # they documented a config that did not exist. Every suppressed code is selected
@@ -102,7 +107,7 @@ ignore = ["SIM102", "SIM105"]
 
 # Mutation testing (.github/workflows/mutation.yml, Linux only: mutmut needs a
 # clean fork()). The rule modules the coach's decisions come from - the files
-# CLAUDE.md asks a scenario test for. A surviving mutant is a change to a rule
+# AGENTS.md asks a scenario test for. A surviving mutant is a change to a rule
 # that no test notices.
 [tool.mutmut]
 paths_to_mutate = [
@@ -113,7 +118,7 @@ paths_to_mutate = [
 ]
 # mutmut copies only the mutated files into mutants/; the tests import the rest
 # of the package and read the README, the evals and the frontend tests too.
-also_copy = ["src/runspector", "evals", "web-tests", "scripts", "docs", "README.md", "CLAUDE.md"]
+also_copy = ["src/runspector", "evals", "web-tests", "scripts", "docs", "README.md", "AGENTS.md", "CLAUDE.md"]
 # The tests that pin rules, plus test_tools.py (apply and undo are only tested
 # there). Not the web, UI and simulation tests: they reach nearly every rule
 # function, and with them a mutant waits ~31 s for its tests instead of ~12 -
