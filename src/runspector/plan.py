@@ -153,7 +153,7 @@ def _created_nothing(exc: BaseException, _depth: int = 0) -> bool:
 def _path(proposal_id: str) -> Path:
     if not isinstance(proposal_id, str) or not PROPOSAL_ID_RE.fullmatch(proposal_id):
         raise ValueError(f"not a proposal id: {proposal_id!r}")
-    return paths.proposals_dir() / f"{proposal_id}.json"
+    return paths.contained(paths.proposals_dir(), f"{proposal_id}.json")
 
 
 def new_id() -> str:

@@ -171,6 +171,23 @@ def garmin_session_present() -> bool:
         return False
 
 
+def contained(directory: Path, name: str) -> Path:
+    """`directory / name`, refused with ValueError when it would land outside
+    `directory`.
+
+    Every file named from outside text (a job, card or proposal id, a static
+    asset) is guarded by a `fullmatch` first; this is the same guard once more,
+    in the form a static analyser recognises. CodeQL's path-injection query does
+    not read a regex as a sanitiser, so each new caller raised a fresh alert
+    that was dismissed by hand, fifteen times - a normalised path that must
+    start with its directory closes the class instead."""
+    base = os.path.normpath(directory)
+    full = os.path.normpath(os.path.join(base, name))
+    if not full.startswith(base + os.sep):
+        raise ValueError(f"{name!r} is not a file in {directory}")
+    return Path(full)
+
+
 def cards_dir() -> Path:
     d = home() / "cards"
     d.mkdir(exist_ok=True)

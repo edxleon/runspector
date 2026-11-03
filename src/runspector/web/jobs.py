@@ -42,6 +42,10 @@ def _checked(job_id: str) -> str:
     return job_id
 
 
+def _file(directory: Path, job_id: str, suffix: str) -> Path:
+    return paths.contained(directory, _checked(job_id) + suffix)
+
+
 def _now() -> datetime:
     return datetime.now().astimezone()
 
@@ -55,21 +59,21 @@ def new_id() -> str:
 
 
 def job_path(job_id: str) -> Path:
-    return paths.jobs_dir() / f"{_checked(job_id)}.json"
+    return _file(paths.jobs_dir(), job_id, ".json")
 
 
 def log_path(job_id: str) -> Path:
-    return paths.jobs_dir() / f"{_checked(job_id)}.log"
+    return _file(paths.jobs_dir(), job_id, ".log")
 
 
 def card_path(card_id: str) -> Path:
-    return paths.cards_dir() / f"{_checked(card_id)}.json"
+    return _file(paths.cards_dir(), card_id, ".json")
 
 
 def evidence_path(card_id: str) -> Path:
     """What the coach read for a card (`evidence.py`). It lives and dies with
     the card: `delete_card` and `cleanup_cards` remove both."""
-    return paths.evidence_dir() / f"{_checked(card_id)}.json"
+    return _file(paths.evidence_dir(), card_id, ".json")
 
 
 #: How long `_write_json` keeps trying to swap a file in. On Windows a reader
@@ -115,7 +119,7 @@ def read_jobs(limit: int = 20) -> list[dict]:
 
 
 def _cancel_path(job_id: str) -> Path:
-    return paths.jobs_dir() / f"{_checked(job_id)}.cancel"
+    return _file(paths.jobs_dir(), job_id, ".cancel")
 
 
 def request_cancel(job_id: str) -> None:

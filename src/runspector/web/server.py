@@ -1284,7 +1284,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(MANIFEST)
         if route.startswith("/static/"):
             name = route[len("/static/"):]
-            if not _STATIC_RE.fullmatch(name) or not (path := STATIC / name).is_file():
+            if not _STATIC_RE.fullmatch(name) or not (path := paths.contained(STATIC, name)).is_file():
                 return self._json({"error": "not found"}, 404)
             return self._send(200, path.read_bytes(), _MIME[path.suffix], cache=False)
         if not route.startswith("/api/"):

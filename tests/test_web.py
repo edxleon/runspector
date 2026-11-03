@@ -323,6 +323,35 @@ def test_job_ids_guard_against_path_traversal():
     assert "prompt" not in jobs.public(job) and jobs.public(job)["id"] == job["id"]
 
 
+@pytest.mark.parametrize("name", ["../x.json", "../../etc/passwd", "a/../../b.json", "/etc/passwd",
+                                  "..", "", "."])
+def test_a_file_named_from_outside_text_stays_in_its_directory(tmp_path, name):
+    """The second guard behind every `fullmatch` on an id (`paths.contained`):
+    it holds by itself, so a regex loosened one day still cannot leave the
+    directory - and it is the form CodeQL reads as a sanitiser."""
+    with pytest.raises(ValueError):
+        paths.contained(tmp_path, name)
+    assert paths.contained(tmp_path, "j-20261103-1.json") == tmp_path / "j-20261103-1.json"
+    assert paths.contained(tmp_path, "a/../j-1.json") == tmp_path / "j-1.json"
+
+
+def test_every_id_helper_goes_through_the_contained_path():
+    """job, log, card, evidence, cancel marker and proposal: each refuses an id
+    outside its pattern, and each builds its path with `paths.contained`."""
+    import inspect
+
+    from runspector import plan
+
+    for helper in (jobs.job_path, jobs.log_path, jobs.card_path, jobs.evidence_path,
+                   jobs._cancel_path, plan._path):
+        with pytest.raises(ValueError):
+            helper("../j-1")
+    assert "paths.contained(" in inspect.getsource(jobs._file)
+    assert "paths.contained(" in inspect.getsource(plan._path)
+    assert "/ f\"{" not in inspect.getsource(jobs).split("def _file", 1)[1], \
+        "an id joined onto a directory by hand, next to the helper"
+
+
 def test_recover_stale_and_queue_order():
     a = jobs.new_job("a", title="a", kind="k")
     a["status"] = "running"
