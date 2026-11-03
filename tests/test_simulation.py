@@ -26,11 +26,37 @@ CASES = [(name, p.seed) for name, p in sim.PERSONAS.items()] + \
     [(name, 1000 + i) for name in sim.PERSONAS for i in range(_EXTRA)]
 
 
+def shard(cases: list, spec: str | None) -> list:
+    """RUNSPECTOR_SIM_SHARD=i/n keeps every n-th course from the i-th on, so
+    the weekly sweep runs as n jobs side by side: all of it in one job had
+    outgrown the runner's hour and was cancelled with nothing reported."""
+    if not spec:
+        return cases
+    i, _, n = spec.partition("/")
+    if not (i.isdigit() and n.isdigit() and int(i) < int(n)):
+        raise ValueError(f"RUNSPECTOR_SIM_SHARD={spec!r} - expected i/n with 0 <= i < n")
+    return cases[int(i)::int(n)]
+
+
+CASES = shard(CASES, os.environ.get("RUNSPECTOR_SIM_SHARD"))
+
+
 @pytest.mark.parametrize(("persona", "seed"), CASES, ids=[f"{n}-{s}" for n, s in CASES])
 def test_a_runner_s_expectations_hold_over_the_whole_course(persona, seed):
     course = sim.simulate(sim.jittered(sim.PERSONAS[persona], seed), weeks=16)
     broken = sim.check(course)
     assert not broken, "\n".join(broken) + "\n\n" + sim.table(course)
+
+
+def test_the_shards_of_a_sweep_cover_every_course_once():
+    cases = [(f"p{i % 5}", 1000 + i) for i in range(41)]
+    parts = [shard(cases, f"{i}/4") for i in range(4)]
+    assert sorted(c for p in parts for c in p) == sorted(cases)
+    assert max(map(len, parts)) - min(map(len, parts)) <= 1
+    assert shard(cases, None) == shard(cases, "") == cases
+    for bad in ("4/4", "1", "a/b", "-1/4"):
+        with pytest.raises(ValueError):
+            shard(cases, bad)
 
 
 def test_the_expectations_can_fail():
