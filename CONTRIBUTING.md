@@ -20,7 +20,8 @@ uv run ruff check && uv run pytest -q && node --test "web-tests/*.test.mjs" && u
 ```
 
 CI runs the same on three operating systems, plus a coverage floor and an install of the built
-wheel. `AGENTS.md` lists what else a change pulls along (a rule needs a scenario test that was red
+wheel. `main` moves only through a pull request, once the Linux tests, the frontend lint, the
+workflow audit and the install check have passed. `AGENTS.md` lists what else a change pulls along (a rule needs a scenario test that was red
 first, a new tool changes the tool counts, a prompt change needs an eval run).
 
 ## Changes that need a deep review

@@ -46,13 +46,21 @@ every important finding proven by a red test, a live run on throw-away data, a f
 A write against a real Garmin account only after the maintainer's explicit yes, with
 `undo_workout` as the way back.
 
+## How main moves
+
+Only through a pull request (ruleset `main`): lint and tests on Linux for both Pythons, the
+frontend lint, the workflow audit and the installed-wheel check must pass first; Windows and macOS
+run on the PR too but are not waited for. Merge by rebase or squash -
+`gh pr merge --auto --rebase` merges once the checks pass. Push and merge only on the
+maintainer's word.
+
 ## Release
 
-1. Bump `pyproject.toml`, `src/runspector/__init__.py` and the `@vX.Y.Z` install pin in the README;
-   `uv lock`.
-2. Notes in `docs/releases/vX.Y.Z.md`.
-3. `git tag vX.Y.Z && git push origin main vX.Y.Z` - `.github/workflows/release.yml` checks the
-   versions agree, runs the suite, builds, attests and publishes. Push and release only on the maintainer's word.
+1. On a branch: bump `pyproject.toml`, `src/runspector/__init__.py`, `server.json` and the
+   `@vX.Y.Z` install pin in the README; `uv lock`. Notes in `docs/releases/vX.Y.Z.md`. A PR.
+2. After the merge: `git switch main && git pull --ff-only && git tag vX.Y.Z && git push origin vX.Y.Z` -
+   `.github/workflows/release.yml` checks the versions agree, runs the suite, builds, attests and
+   publishes. Release only on the maintainer's word.
 
 ## Style
 
