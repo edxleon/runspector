@@ -20,7 +20,8 @@ EXT = (".py", ".md", ".yaml", ".yml", ".json", ".jsonc", ".mjs", ".js", ".toml",
        ".txt")
 #: Named on purpose and not in the repository: the token folder inside the
 #: athlete's data directory, Claude Code's memory index, and an eval run's
-#: untracked output.
+#: untracked output by its bare name. (A path git ignores is an output too:
+#: `_ignored` below - it exists on a machine that ran the evals, not in CI.)
 OUTSIDE = {"garmin/", "MEMORY.md", "last-run.json"}
 MODULES = ("runspector.", "runspector.web.")
 
@@ -28,6 +29,11 @@ MODULES = ("runspector.", "runspector.web.")
 def _tracked() -> set[str]:
     out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True)
     return {Path(p).name for p in out.stdout.splitlines()}
+
+
+def _ignored(path: str) -> bool:
+    """A path the repository ignores: generated output, named on purpose."""
+    return subprocess.run(["git", "check-ignore", "-q", path], cwd=ROOT).returncode == 0
 
 
 def unresolved(text: str, base: Path, tracked: set[str]) -> list[str]:
@@ -48,7 +54,8 @@ def unresolved(text: str, base: Path, tracked: set[str]) -> list[str]:
                     if path not in tracked and not any((r / path).exists() for r in roots):
                         missing.append(tok)
                     continue
-                if not any((r / path).exists() or ("*" in path and any(r.glob(path))) for r in roots):
+                if not any((r / path).exists() or ("*" in path and any(r.glob(path))) for r in roots) \
+                        and not _ignored(path):
                     missing.append(tok)
             elif re.fullmatch(r"[a-z_]+\.[A-Za-z_]\w*", tok) and tok.split(".")[0] in local:
                 name, attr = tok.split(".")
