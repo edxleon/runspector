@@ -24,3 +24,6 @@
 | 2026-11-02 18:11 | sonnet | 19/19 | - | final comparison: sonnet (a card 14 s median) |
 | 2026-11-02 18:21 | opus | 18/19 | a-restart-in-german | final comparison: opus (a card 63 s median) |
 | 2026-11-02 18:25 | haiku | 17/19 | a-restart-in-german | final comparison: haiku (a card 22 s median) |
+| 2026-11-03 08:56 | sonnet (the app's default) | 19/19 | - | after the coach.md rules of 2026-11-03, before the Today-tab line (a card 14 s median) |
+| 2026-11-03 09:08 | sonnet (the app's default) | 17/19 | a-restart-in-german | coach.md rules of 2026-11-03 (open answers under 200 words, record a check-in yourself) (a card 17 s median) |
+| 2026-11-03 09:11 | sonnet (the app's default) | 19/19 | - | same prompt again: is a-restart-in-german noise or the Today-tab line? (a card 15 s median) |

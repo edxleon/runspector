@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/edxleon/runspector/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runspector/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/runspector)](https://pypi.org/project/runspector/)
-[![evals 36/38](https://img.shields.io/badge/evals-36%2F38-yellow)](evals/RESULTS.md)
+[![evals 38/38](https://img.shields.io/badge/evals-38%2F38-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![website](https://img.shields.io/badge/website-edxleon.github.io%2Frunspector-blue)](https://edxleon.github.io/runspector/)
 
@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1600 tests, 151 frontend tests and that gate on three operating systems and two Python versions, with every
+1613 tests, 151 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -420,7 +420,11 @@ pieces of the shipped prompt (`templates.json` and the JSON-card frame in `web/a
 `tests/test_web.py` covers deterministically instead), and under `--safe-mode` on whichever model the
 suite is pointed at, neither of which production can use. The framing itself is imported from the app
 rather than copied, so the suite cannot drift from what ships. `--no-skills` re-runs a case with the
-skill files removed: a case that still passes is testing the model, not the prompt.
+skill files removed: a case that still passes is testing the model, not the prompt. Every week each case
+is answered five times: the twelve safety cases (a symptom, an illness, an instruction in Garmin's
+text, a session claimed on the watch that is not) may miss one of the five, which is flagged to be
+read, and never two; the others must pass most of them; and the run names the model the `sonnet`
+alias resolved to that day.
 Two more suites run the parts the coach's memory rests on with the real model: the check before a
 fact is kept ([`memory_check.yaml`](evals/memory_check.yaml) - a "not" that stays, a pain of now, a
 change that must change *that* fact, each case three times, every run of every model
