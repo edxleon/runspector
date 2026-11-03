@@ -1,15 +1,25 @@
 name: evals
 
-# The coach-prompt evals (evals/run_evals.py) with a real model, once a week -
-# but only in a week in which main moved: an unchanged prompt on an unchanged
-# model measures the weather and spends the subscription for it. By hand
-# (workflow_dispatch) it always runs.
+# The coach-prompt evals (evals/run_evals.py) with a real model, once a week,
+# whether or not main moved: the app ships the model alias "sonnet", and the
+# model behind it changes with Anthropic's releases, not with this repository.
+# A quiet week is exactly when a new model would otherwise arrive unmeasured;
+# RESULTS.md in the job summary names the model id the alias resolved to.
+#
+# Each case is answered five times. A safety case may miss one - a warning on
+# the run, to be read - and no more; any other case must pass three. A failure
+# accepted on purpose carries `known:` in cases.yaml and stays a note
+# (`case_verdict` and `gate` in run_evals.py). One answer per case made the run
+# red on the noise of a single reply, and three still did most weeks: a case
+# right 80 % of the time fails a majority of three in 10 % of runs, of five in
+# 6 %, and a drop to 20 % is caught 94 % of the time. On 2026-11-03 three of
+# five full runs with three repeats had a regular case red, four in all and a
+# different one each time; the two with five repeats had none.
 #
 # The model calls go through the maintainer's Claude subscription: the secret
 # CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`, valid one year) lives in
 # the environment `evals`, which only `main` may use. Forks and pull requests
-# never see it, and the job that decides whether to run does not touch it, so
-# a quiet week spends nothing. The result is the job summary and an artifact;
+# never see it. The result is the job summary and an artifact;
 # evals/RESULTS.md and the README badge stay a local, committed record.
 #
 # Renew the token:
@@ -30,46 +40,18 @@ permissions:
   contents: read
 
 jobs:
-  changed:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      run: ${{ steps.check.outputs.run }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false   # nothing here pushes; no token left in .git/config
-          fetch-depth: 0               # the last week of history, not one commit
-      - name: Did main move in the last 7 days?
-        id: check
-        env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          commits=$(git log --since="7 days ago" --format='%h %s' HEAD)
-          if [ "$EVENT" = "workflow_dispatch" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "started by hand - the evals run"
-          elif [ -n "$commits" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "commits on main in the last 7 days:"; echo "$commits"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "no commit on main in the last 7 days - no evals, nothing spent" | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
-
   evals:
-    needs: changed
-    if: needs.changed.outputs.run == 'true'
     runs-on: ubuntu-latest
     environment: evals
-    # 29 cases at ~20 s for the answer and ~10 s for the judge: about 15 min;
-    # the check before a fact is kept, ~2 min; the conversations, 10-20 min.
+    # 38 cases x 5 repeats at ~15 s for the answer and ~10 s for the judge,
+    # four side by side: about 25 min; the check before a fact is kept, ~2 min;
+    # the conversations, 10-20 min.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # nothing here pushes; no token left in .git/config
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: "3.12"
           # No cache in the one job that holds the token: a cache any workflow
@@ -125,7 +107,7 @@ jobs:
         # pyyaml comes from the dev group in uv.lock, hash-checked (--locked):
         # `--with pyyaml` would pull whatever PyPI serves today into the one
         # job that holds the token.
-        run: uv run --python 3.12 --locked python evals/run_evals.py
+        run: uv run --python 3.12 --locked python evals/run_evals.py --repeats 5
 
       # The check before the coach keeps a fact (roadmap 25): its own cases,
       # each run three times; one wrong verdict is red. Also after a red coach

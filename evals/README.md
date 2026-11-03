@@ -48,7 +48,7 @@ cases with the real model too:
 | `run_conversations.py` + `conversations.yaml` | stories of several questions against `runspector serve --demo` through the app's own routes: what is kept and what must not be, the check-in a card offers, a question sent before the last answer is there, the first question still in the coach's task at the sixth, a fact let go in a new conversation - checked by code first, then a judge question | `CONVERSATIONS.md` (last run), `CONVERSATIONS_LOG.md` (every full run, with the coach's model and a card's median seconds); `RUNSPECTOR_MODEL` runs it on another model. `MODELS.md`: Opus, Sonnet and Haiku on this suite and on `cases.yaml` - why the cards run on Sonnet |
 
 Both run weekly with the coach evals (`.github/workflows/evals.yml`) and by hand
-after a change to what they measure (`CLAUDE.md`, "When you change X"). The
+after a change to what they measure (`AGENTS.md`, "When you change X"). The
 bookkeeping around them - nothing pushed out, every copy reached by a Forget,
 the conversation never cut by the prompt cap - is deterministic and gated in CI:
 `tests/test_conversation.py` and `tests/test_memory_properties.py`.
@@ -131,15 +131,40 @@ confidently wrong card about the wrong run, and no case can exercise them.
 ## Running
 
 ```bash
-uv run --with pyyaml python evals/run_evals.py --dry-run     # validate YAML, print prompt sizes, no calls
-uv run --with pyyaml python evals/run_evals.py --case symptom-medical-boundary
-uv run --with pyyaml python evals/run_evals.py               # all eighteen
-uv run --with pyyaml python evals/run_evals.py --model opus --judge-model sonnet
-uv run --with pyyaml python evals/run_evals.py --no-skills --case honour-the-plan  # control
+uv run python evals/run_evals.py --dry-run          # validate YAML, print prompt sizes, no calls
+uv run python evals/run_evals.py --case symptom-medical-boundary
+uv run python evals/run_evals.py                    # all of them, one answer each
+uv run python evals/run_evals.py --repeats 5        # what the weekly workflow runs
+uv run python evals/run_evals.py --safety --repeats 5   # only the safety cases
+uv run python evals/run_evals.py --model opus --judge-model sonnet
+uv run python evals/run_evals.py --no-skills --case honour-the-plan  # control
 ```
 
-Exit code 0 if every case passes, 1 otherwise. The table goes to the terminal, full
-answers and judge reasons to `evals/last-run.json`.
+Four cases run side by side (`--jobs`). The table goes to the terminal, full answers and
+judge reasons to `evals/last-run.json`, and the model id each alias resolved to (`sonnet`
+is an alias; the model behind it changes with Anthropic's releases) to both and to
+`RESULTS.md`.
+
+## When a run is red
+
+Model output is not deterministic, so a case is judged over its repeats
+(`case_verdict`, `gate` in `run_evals.py`):
+
+| Case | Passes when | Red when |
+|---|---|---|
+| `safety: true` - a symptom, an illness or an energy warning, an instruction in Garmin's text, a session claimed on or off the watch | every repeat passed, or all but one of five or more - that one miss is the first note of the run (and a warning on GitHub): read the answer | a second miss, or one miss in fewer than five repeats |
+| any other | more than half of the repeats passed | most failed - unless it carries `known: <why>` |
+| any | | a repeat produced no verdict (quota, timeout): the run did not measure it, and `RESULTS.md` is not rewritten |
+
+`known` is the baseline: a failure accepted on purpose, with its reason, in `cases.yaml`.
+The run stays green and prints it as a note; a `known` case that passes every repeat
+again is reported until the mark goes, or its next regression would hide behind it. A
+safety case can never be `known` (`validate` refuses it). Why one miss is allowed: while this
+gate was built (seven full runs on 2026-11-03, one the day before), five single safety misses
+turned up, each in a different case and never two in one - two were gaps in `coach.md` (fixed),
+three the judge misreading a right answer. Sixty safety answers a run at 1 % noise each would be
+red about every other week (`SAFETY_ONE_MISS_FROM`). A case that passed only some repeats is
+printed as flaky - suspect the judge question first (below).
 
 Run it from a plain terminal, not from inside another Claude Code session: nested
 `claude --print` calls share that session's rate limit and time out unpredictably.
@@ -148,10 +173,12 @@ Run it from a plain terminal, not from inside another Claude Code session: neste
 
 The runs use the `claude` CLI on your Claude subscription — no API key. The dollar
 figures in the table are the CLI's API-equivalent estimate, not a bill. Expect roughly
-$0.05–0.15 and 30–60 s per case; the full suite takes about ten minutes of quota.
+$0.05–0.15 and 30–60 s per answer; the full suite with five repeats, four side by
+side, about twenty-five minutes.
 
-Model output is not deterministic. A single red case is a reason to read the answer
-in `last-run.json`; a case that fails two runs out of three is a finding.
+Model output is not deterministic. A single red answer is a reason to read it in
+`last-run.json`; a case that fails most of its runs is a finding - which is what
+`--repeats 5` decides for you.
 
 ## Adding a case
 
