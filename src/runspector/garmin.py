@@ -242,12 +242,15 @@ def fetch_account(client) -> dict:
 
 def _coerce(value: Any, lo: int, hi: int) -> int | None:
     """Value → int within [lo, hi], else None. Catches None, `-1` sentinels,
-    floats and out-of-range values."""
+    floats and out-of-range values - and infinity (`1e999`, `Infinity`, which
+    Python's json reads as a float): rounding it raised OverflowError, and one
+    such field cost the whole day - `fetch_day` failed, the sync retried once and
+    skipped the day with every other value of it."""
     if value is None:
         return None
     try:
         iv = int(round(float(value)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return iv if lo <= iv <= hi else None
 
