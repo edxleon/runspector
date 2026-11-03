@@ -9,14 +9,18 @@ discovered later. This lists, between a base commit and HEAD:
   a test moved to another file did not disappear, one of two equal names did),
 - skip, xfail, importorskip and no-cover/no-branch markers that were added, and
   options in ci.yml, pyproject.toml or a conftest that leave tests or code out,
-- the coverage floor (ci.yml's pytest options, else pyproject's fail_under),
+- the coverage floor where CI sets it (the COVERAGE value of ci.yml's test job,
+  else pyproject's fail_under) - a floor no longer there is a note, not a red:
+  it may have moved,
 - golden files that were rewritten,
 - eval cases removed, newly accepted as `known`, or no longer `safety`,
 - a change to this check itself (CI runs the base commit's copy of it).
 
-It fails only on the two that never pass unnoticed: a lower or vanished
-coverage floor and a safety case lost (removed, or `safety: true` taken away).
-Everything else is a note for the reviewer.
+It fails only on the two that never pass unnoticed: a lower coverage floor and
+a safety case lost (removed, or `safety: true` taken away). Everything else is a
+note for the reviewer. It shows what an agent did to the tests; it is no
+barrier against someone set on hiding it - a change to the workflow itself is
+the deep review's (AGENTS.md).
 
     uv run python scripts/tamper_report.py --base <sha or ref>
 """
@@ -37,13 +41,21 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CI = ".github/workflows/ci.yml"
-SELF = ("scripts/tamper_report.py", CI)
+SELF = "scripts/tamper_report.py"
+#: The lines of ci.yml that make up this check and the floor it reads.
+CI_SELF = re.compile(r"tamper_report|fetch-depth|cov-fail-under|COVERAGE")
+#: Where pytest and coverage take options from, besides ci.yml.
+CONFIGS = ("pyproject.toml", "setup.cfg", "tox.ini", "pytest.ini", ".coveragerc", "conftest.py",
+           "tests/conftest.py")
+#: The tests of this script hold every marker as a string.
+OWN_TESTS = "tests/test_tamper_report.py"
 EVAL_FILES = ("evals/cases.yaml", "evals/conversations.yaml", "evals/memory_check.yaml")
-MARKER = re.compile(r"\bmark\.(skip|skipif|xfail)\b|pytest\.(skip|xfail|importorskip)\("
-                    r"|pragma: no (cover|branch)|\bcollect_ignore"
-                    r"|\b(test|it|describe)\.(skip|todo)\(|\bt\.(skip|todo)\("
-                    r"|\b(skip|todo):\s*true")
-LOOSEN = re.compile(r"--deselect|--ignore|\s-k\s|\bomit\b|exclude_also|exclude_lines|--cov-fail-under")
+MARKER = re.compile(r"\bmark\.(skip|skipif|xfail)\b|\b(skip|xfail|importorskip)\(|SkipTest"
+                    r"|pragma:?\s*no\s*(cover|branch)|\bcollect_ignore|__test__\s*=\s*False"
+                    r"|\b(test|it|describe)\.(skip|todo)\(|\bt\.(skip|todo)\(|\b(skip|todo):\s*\S",
+                    re.I)
+LOOSEN = re.compile(r"--deselect|--ignore|\s-k\s|-m\s|--no-cov|PYTEST_ADDOPTS|\baddopts\b|\btestpaths\b"
+                    r"|\bomit\b|exclude_also|exclude_lines|fail_under|--cov-fail-under", re.I)
 FLOOR = re.compile(r"--cov-fail-under[= ](\d+(?:\.\d+)?)")
 JS_TEST = re.compile(r"""^\s*(?:test|it)\(\s*(["'`])(.+?)\1""", re.M)
 
@@ -106,9 +118,14 @@ def floor(rev: str) -> float | None:
         doc = yaml.safe_load(show(rev, CI)) or {}
     except yaml.YAMLError:
         doc = {}
-    for s in _strings(doc):
-        if m := FLOOR.search(s):
-            return float(m.group(1))
+    # Only where CI sets it: the COVERAGE value of the test job's steps. Text
+    # anywhere else (a step's name, a comment in a script) is not the floor.
+    steps = (((doc.get("jobs") or {}).get("test") or {}).get("steps") or []) if isinstance(doc, dict) else []
+    for step in steps if isinstance(steps, list) else []:
+        cov = ((step or {}).get("env") or {}).get("COVERAGE") if isinstance(step, dict) else None
+        for s in _strings(cov):
+            if m := FLOOR.search(s):
+                return float(m.group(1))
     try:
         cov = tomllib.loads(show(rev, "pyproject.toml") or "").get("tool", {}).get("coverage", {})
     except tomllib.TOMLDecodeError:
@@ -123,16 +140,29 @@ def cases(rev: str, path: str) -> dict[str, dict]:
     except yaml.YAMLError:
         return {}
     items = doc.get("cases") or doc.get("stories") or []
-    return {c["id"]: c for c in items if isinstance(c, dict) and c.get("id")}
+    return {str(c["id"]): c for c in items if isinstance(c, dict) and c.get("id") is not None}
 
 
 def added_lines(base: str, *paths: str) -> list[tuple[str, str]]:
     """(file, line) for every line the change adds in `paths`."""
     out, path = [], ""
-    for line in git("diff", "-U0", f"{base}...HEAD", "--", *paths).splitlines():
+    # --text: a `-diff` in .gitattributes must not turn a test file into a binary
+    # with no lines to read.
+    for line in git("diff", "--text", "-U0", f"{base}...HEAD", "--", *paths).splitlines():
         if line.startswith("+++ "):
             path = line[6:] if line.startswith("+++ b/") else line[4:]
         elif line.startswith("+"):
+            out.append((path, line[1:].strip()))
+    return out
+
+
+def removed_lines(base: str, *paths: str) -> list[tuple[str, str]]:
+    """(file, line) for every line the change removes in `paths`."""
+    out, path = [], ""
+    for line in git("diff", "--text", "-U0", f"{base}...HEAD", "--", *paths).splitlines():
+        if line.startswith("--- "):
+            path = line[6:] if line.startswith("--- a/") else line[4:]
+        elif line.startswith("-"):
             out.append((path, line[1:].strip()))
     return out
 
@@ -142,10 +172,13 @@ def report(base: str) -> tuple[list[str], list[str]]:
     lines, fail = [], []
     changed = set(git("diff", "--name-only", f"{base}...HEAD").splitlines())
 
-    touched_self = sorted(changed & set(SELF))
-    if touched_self:
-        lines.append("**This check itself changed** (" + ", ".join(code(p) for p in touched_self)
-                     + ") - in CI the base commit's copy of the script runs; read the change.")
+    if SELF in changed:
+        lines.append(f"**This check itself changed** ({code(SELF)}) - in CI the base commit's copy of "
+                     "the script runs; read the change.")
+    if any(CI_SELF.search(t) for _p, t in added_lines(base, CI) + removed_lines(base, CI)):
+        lines.append(f"**The CI step of this check or the floor's line changed** ({code(CI)}) - read it.")
+    if ".gitattributes" in changed:
+        lines.append(f"**{code('.gitattributes')} changed** - it decides how git diffs the tests.")
 
     (before, where), (after, _) = tests_at(base), tests_at("HEAD")
     gone = sorted(n for n in before if after[n] < before[n])
@@ -153,18 +186,20 @@ def report(base: str) -> tuple[list[str], list[str]]:
         lines.append(f"**Tests that disappeared ({len(gone)}):**")
         lines += [f"- {code(n)} (was in {code(where[n])})" for n in gone]
 
-    markers = [(p, t) for p, t in added_lines(base, "tests", "web-tests", "src") if MARKER.search(t)]
-    markers += [(p, t) for p, t in added_lines(base, CI, "pyproject.toml") if LOOSEN.search(t)]
-    markers += [(p, t) for p, t in added_lines(base, "tests/conftest.py")
-                if MARKER.search(t) or LOOSEN.search(t)]
+    markers = [(p, t) for p, t in added_lines(base, "tests", "web-tests", "src")
+               if MARKER.search(t) and p != OWN_TESTS]
+    markers += [(p, t) for p, t in added_lines(base, CI, *CONFIGS) if LOOSEN.search(t) or MARKER.search(t)]
     if markers:
         lines.append(f"**Markers or options that leave tests or code out ({len(markers)}):**")
         lines += [f"- {code(p)}: {code(t[:100])}" for p, t in dict.fromkeys(markers)]
 
     old, new = floor(base), floor("HEAD")
-    if old != new:
+    if old is not None and new is None:
+        lines.append(f"**Coverage floor:** {old} -> not found where CI sets it "
+                     "(moved, or removed?) - read it.")
+    elif old != new:
         lines.append(f"**Coverage floor:** {old} -> {new}")
-        if old is not None and (new is None or new < old):
+        if old is not None and new < old:
             fail.append(f"the coverage floor went down ({old} -> {new})")
 
     golden = sorted(p for p in changed if p.startswith("tests/golden/"))
@@ -192,13 +227,17 @@ def main(argv: list[str] | None = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base", required=True,
                     help="the commit to compare HEAD with (the diffs use its merge base with HEAD)")
-    args = ap.parse_args(argv)
+    # Unknown options pass: CI runs the BASE commit's copy of this script with
+    # the arguments of the change, which may know a newer option.
+    args, _unknown = ap.parse_known_args(argv)
     is_commit = git("rev-parse", "--verify", "--quiet", f"{args.base}^{{commit}}").strip()
     if not args.base.strip("0") or not is_commit:
-        print(f"base {args.base!r} is not a commit here - nothing to compare "
-              "(a new branch, a shallow checkout?)")
-        return 0
-    lines, fail = report(args.base)
+        return _emit([f"base {args.base!r} is not a commit here - nothing to compare "
+                      "(a new branch, a shallow checkout?)"], [])
+    return _emit(*report(args.base))
+
+
+def _emit(lines: list[str], fail: list[str]) -> int:
     out = ["## What this change does to the tests", ""]
     out += lines or ["Nothing: no test removed, skipped or loosened, no eval case dropped."]
     if fail:

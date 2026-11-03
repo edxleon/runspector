@@ -93,7 +93,7 @@ def test_every_way_a_change_can_weaken_the_tests_is_listed(repo):
     assert "tests/golden/week.txt" in text
     assert "newly accepted as failing (`known`):** `plain`" in text
     assert "safety case lost:** `symptom`" in text
-    assert "This check itself changed" in text, "ci.yml is part of the check"
+    assert "The CI step of this check or the floor's line changed" in text
     assert any("coverage floor went down" in f for f in fail)
     assert any("safety case(s) lost" in f and "symptom" in f for f in fail)
 
@@ -115,17 +115,31 @@ def test_a_comment_is_not_the_floor(repo):
     assert any("92.0 -> 80.0" in line for line in lines) and fail, (lines, fail)
 
 
-@pytest.mark.parametrize(("ci", "pyproject", "red"), [
-    (CI_YML.replace("--cov-fail-under=92", "--cov-fail-under 92"), None, False),       # pytest-cov takes both
+@pytest.mark.parametrize(("ci", "pyproject", "note"), [
+    (CI_YML.replace("--cov-fail-under=92", "--cov-fail-under 92"), None, None),       # pytest-cov takes both
     (CI_YML.replace(" --cov-fail-under=92", ""),
-     "[project]\nname = 'x'\n\n[tool.coverage.report]\nfail_under = 92\n", False),     # moved, kept
-    (CI_YML.replace(" --cov-fail-under=92", ""), None, True),                          # gone
+     "[project]\nname = 'x'\n\n[tool.coverage.report]\nfail_under = 92\n", None),     # moved, kept
+    (CI_YML.replace(" --cov-fail-under=92", ""), None, "not found where CI sets it"),  # gone or moved
 ])
-def test_the_floor_is_found_where_it_may_live_and_missing_is_red(repo, ci, pyproject, red):
+def test_a_floor_that_moved_is_never_red(repo, ci, pyproject, note):
+    """A floor that is no longer where CI sets it may have moved (addopts,
+    .coveragerc ...): a note to read, not a red that blocks a valid change."""
     mod, base, commit = repo
     commit({".github/workflows/ci.yml": ci, **({"pyproject.toml": pyproject} if pyproject else {})})
+    lines, fail = mod.report(base)
+    assert fail == [], fail
+    assert (note is None) or any(note in line for line in lines), lines
+
+
+def test_only_the_value_ci_sets_is_the_floor(repo):
+    """A step NAME holding the old floor while COVERAGE drops: the first match
+    anywhere in the file would have read the name and reported nothing."""
+    mod, base, commit = repo
+    ci = CI_YML.replace("- name: tests", "- name: tests (--cov-fail-under=92)")
+    commit({".github/workflows/ci.yml": ci.replace("--cov=runspector --cov-fail-under=92",
+                                                    "--cov=runspector --cov-fail-under=80")})
     _lines, fail = mod.report(base)
-    assert bool(fail) is red, fail
+    assert any("92.0 -> 80.0" in f for f in fail), fail
 
 
 def test_markers_and_options_that_leave_tests_out_are_listed(repo):
@@ -137,6 +151,36 @@ def test_markers_and_options_that_leave_tests_out_are_listed(repo):
     text = "\n".join(mod.report(base)[0])
     for seen in ("importorskip", "pragma: no branch", "collect_ignore", "omit"):
         assert seen in text, (seen, text)
+
+
+def test_coverage_switched_off_and_more_skip_forms_are_listed(repo):
+    mod, base, commit = repo
+    commit({"pyproject.toml": "[project]\nname = 'x'\n\n[tool.pytest.ini_options]\n"
+                              "addopts = '--no-cov'\n",
+            "tests/test_a.py": BASE_FILES["tests/test_a.py"]
+            + "\n\nclass TestOld:\n    __test__ = False\n\n    def test_x(self):  # PRAGMA: NO COVER\n"
+            + "        raise unittest.SkipTest('later')\n",
+            "web-tests/x.test.mjs": 'test("js one", { skip: "flaky" }, () => {});\n'
+                                    'test("js two", () => {});\n'})
+    text = "\n".join(mod.report(base)[0])
+    for seen in ("--no-cov", "__test__ = False", "PRAGMA: NO COVER", "SkipTest", 'skip: "flaky"'):
+        assert seen in text, (seen, text)
+
+
+def test_a_gitattributes_that_hides_the_diff_hides_nothing(repo):
+    mod, base, commit = repo
+    commit({".gitattributes": "tests/** -diff\n",
+            "tests/test_b.py": SKIPPED_ONE.replace("test_one", "test_new")})
+    text = "\n".join(mod.report(base)[0])
+    assert "@pytest.mark.skip" in text and ".gitattributes" in text, text
+
+
+def test_a_numeric_case_id_is_read_not_a_crash(repo):
+    mod, _base, commit = repo
+    with_number = commit({"evals/cases.yaml": "cases:\n  - id: 42\n    safety: true\n  - id: plain\n"})
+    commit({"evals/cases.yaml": "cases:\n  - id: plain\n"})
+    lines, fail = mod.report(with_number)
+    assert any("`42`" in line for line in lines) and any("42" in f for f in fail), (lines, fail)
 
 
 def test_a_file_that_is_not_utf8_is_read_not_a_crash(repo):
@@ -151,6 +195,7 @@ def test_the_exit_code_says_red_and_a_missing_base_is_no_red(repo, capsys):
     mod, base, commit = repo
     assert mod.main(["--base", "0" * 40]) == 0, "a new branch: `before` is all zeros"
     assert mod.main(["--base", "not-a-commit"]) == 0
+    assert mod.main(["--base", base, "--format", "md"]) == 0, "an option of a newer copy passes"
     commit({"evals/cases.yaml": "cases:\n  - id: plain\n"})
     assert mod.main(["--base", base]) == 1
     assert "**Red:**" in capsys.readouterr().out
