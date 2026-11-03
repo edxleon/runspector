@@ -5,6 +5,9 @@ For every coding agent and every person working here (Claude Code reads it throu
 A public repo: everything here ships to strangers. `scripts/pii_gate.py` keeps personal data out;
 real Garmin data only ever goes into a throw-away `RUNSPECTOR_HOME`, never into the tree.
 
+Run it: `uv run runspector serve --demo` (a synthetic athlete, no Garmin account). The module map is
+`docs/architecture.md`, what is next `docs/roadmap.md`.
+
 ## Before every commit
 
 ```bash

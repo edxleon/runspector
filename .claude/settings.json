@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push --no-verify*)",
+      "Bash(git push * --no-verify*)",
+      "Bash(git push * --delete*)",
+      "Bash(git push * :refs/*)",
+      "Bash(git tag -d *)",
+      "Bash(gh release delete*)",
+      "Bash(gh repo delete*)",
+      "Bash(gh api -X DELETE*)",
+      "Bash(gh api --method DELETE*)",
+      "Edit(~/.runspector/**)",
+      "Bash(rm *.runspector*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet python \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_status.py\"",
+            "timeout": 30,
+            "statusMessage": "runspector status"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet python \"$CLAUDE_PROJECT_DIR/.claude/hooks/lint_python.py\"",
+            "timeout": 30,
+            "statusMessage": "ruff on the edited file"
+          }
+        ]
+      }
+    ]
+  }
+}
