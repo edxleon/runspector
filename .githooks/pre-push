@@ -1,7 +1,7 @@
 #!/bin/sh
-# Before main moves: what CI would fail on, here, in about a minute. Commits go
-# straight to main and CI only reports afterwards - and `uv tool install
-# git+...runspector` installs whatever main is at that moment.
+# Before a push: what CI would fail on, here, in about a minute. main moves only
+# through a pull request whose required checks passed (ruleset `main`); this
+# catches the red ones before they cost a twenty-minute CI round.
 #
 #   git config core.hooksPath .githooks      # once per clone, opt-in
 #   git push --no-verify                     # skip, when you know why
@@ -16,7 +16,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     [ "$local_sha" != "$zero" ] && pushed="$pushed $local_sha"
     case "$local_ref" in refs/tags/*) continue ;; esac
     [ "$local_sha" = "$zero" ] && continue
-    [ "$remote_sha" = "$zero" ] && continue
+    # A new branch - in the pull-request flow every push is one: compare with
+    # where it left main. Skipping it, as this hook once did, meant the prompt
+    # checks below never ran on any pull request.
+    if [ "$remote_sha" = "$zero" ]; then
+        remote_sha=$(git merge-base "$local_sha" "refs/remotes/$1/main" 2>/dev/null) || continue
+    fi
     changed=$(git diff --name-only "$remote_sha" "$local_sha")
     # The coach's prompt is code with its own tests: a change to it ships with
     # an eval run, which is what rewrites evals/RESULTS.md.
