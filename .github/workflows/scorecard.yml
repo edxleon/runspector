@@ -1,0 +1,64 @@
+name: scorecard
+
+# OpenSSF Scorecard: an outside, comparable read of how this repository is kept
+# (pinned dependencies, token permissions, branch rules, dangerous workflow
+# patterns, a security policy, known vulnerabilities, ...), weekly and whenever
+# main moves. The score and every check's reason are the job summary; the full
+# result is an artifact.
+#
+# Not published to api.scorecard.dev, so there is no README badge. Publishing
+# needs `id-token: write` in this job, and the action, though pinned to a
+# commit, runs a Docker image by tag (ghcr.io/ossf/scorecard-action:vX), which
+# can be pushed again. The MCP registry hands publish rights on
+# io.github.edxleon/* to ANY GitHub OIDC token of this owner, whatever the
+# workflow - so a replaced image could re-point the registry entry. The one
+# job that accepts such an image with a token is PyPI's publish (release.yml,
+# the `pypi` job); a badge is not worth a second. The image still gets the
+# Actions runtime token, which can write main's caches - restored by ci.yml,
+# sweep.yml and mutation.yml, which hold no secret and no write token; the jobs
+# that do (release, evals) restore none. Not uploaded to the Security tab either: every check a one-person
+# project cannot meet (a second person's review, fuzzing) would stay an open
+# alert, and a tab of alerts nobody acts on is the one that gets ignored.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "33 3 * * 1"     # Mondays, 03:33 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: scorecard
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.json
+          results_format: json
+          publish_results: false
+      - name: Score as the job summary
+        if: always()
+        run: |
+          jq -r '"## OpenSSF Scorecard: \(.score) / 10", "",
+                 "Lowest first; -1 is a check that did not apply or could not run.", "",
+                 "| check | score | reason |", "|---|---|---|",
+                 (.checks | sort_by(.score) | .[] | "| \(.name) | \(.score) | \(.reason) |")' \
+            results.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: scorecard-${{ github.run_number }}
+          path: results.json
+          retention-days: 30
+          if-no-files-found: ignore

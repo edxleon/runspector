@@ -12,8 +12,9 @@ name: release
 #   git tag v0.3.2 && git push origin v0.3.2
 #
 # The notes come from `docs/releases/<tag>.md` when it exists, else GitHub
-# generates them from the commits. A release that already exists (created by
-# hand) keeps its notes and gets the files attached.
+# generates them from the commits. A draft that already exists (made by hand)
+# keeps its notes and gets the files; a published one must already hold
+# exactly these files (see the Release step).
 
 on:
   push:
@@ -93,7 +94,9 @@ jobs:
         with:
           name: dist
           path: dist/
-          retention-days: 1
+          # Long enough that "Re-run failed jobs" after a PyPI outage still
+          # publishes these files, not a rebuild, a day or two later.
+          retention-days: 14
           if-no-files-found: error
 
   # Attest and publish - no Python, no project code, no dependency runs here,
@@ -122,16 +125,69 @@ jobs:
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
+        # A draft first, the files second, published last: with immutable
+        # releases on (Settings > General > Releases) a published release takes
+        # no file, and its tag and files are locked for good.
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
-          elif [ -f "docs/releases/$TAG.md" ]; then
-            gh release create "$TAG" dist/* --verify-tag --title "$TAG" --notes-file "docs/releases/$TAG.md"
-          else
-            gh release create "$TAG" dist/* --verify-tag --title "$TAG" --generate-notes
+          set -e   # as GitHub runs it; said here so the step reads the same anywhere
+          # The release must hold exactly dist/: the same names with the same
+          # bytes, nothing missing and nothing more. `held` is read on its own
+          # line, so an API error stops the step with its own message instead of
+          # reading as "other files".
+          built=$(for f in dist/*; do echo "$(basename "$f") sha256:$(sha256sum "$f" | cut -d' ' -f1)"; done | sort)
+          held() { gh release view "$TAG" --json assets --jq '.assets[] | "\(.name) \(.digest)"'; }
+          # The state from ONE listing of the releases, drafts included: any
+          # error stops here. `gh release view` asks for the published release
+          # and the draft side by side and says "release not found" when one
+          # says so and the other failed - read as "none", a 5xx made a second
+          # draft beside the first.
+          if ! states=$(gh api "repos/{owner}/{repo}/releases?per_page=100" --paginate \
+                          --jq '.[] | select(.tag_name == env.TAG) | .draft'); then
+            echo "::error::cannot list the releases"
+            exit 1
           fi
+          case "$states" in
+            "") state=none ;;
+            true|false) state=$states ;;
+            *) echo "::error::more than one release for $TAG ($(echo $states)) - delete the extra draft"; exit 1 ;;
+          esac
+          if [ "$state" = "false" ]; then
+            # Published already, by an earlier attempt of this run ("Re-run all
+            # jobs" after PyPI failed). Its files cannot change any more, so
+            # they must be these - and they are, when nothing changed: the build
+            # is reproducible (a rebuild of v0.10.0 gave the same bytes).
+            have=$(held)
+            if [ "$(printf '%s\n' "$have" | sort)" = "$built" ]; then
+              echo "$TAG is published with exactly these files"
+              exit 0
+            fi
+            echo "::error::$TAG is published with other files than this build (a rebuild that came out different, or files added by hand). Nothing of this run reached PyPI. If PyPI has $TAG, nothing is missing; if not, release a new version - this tag cannot take other files."
+            exit 1
+          fi
+          if [ "$state" = "none" ]; then
+            if [ -f "docs/releases/$TAG.md" ]; then
+              gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file "docs/releases/$TAG.md"
+            else
+              gh release create "$TAG" --draft --verify-tag --title "$TAG" --generate-notes
+            fi
+          fi
+          gh release upload "$TAG" dist/* --clobber
+          # A draft made by hand may carry more; what is published is what PyPI gets.
+          have=$(held)
+          if [ "$(printf '%s\n' "$have" | sort)" != "$built" ]; then
+            echo "::error::the draft $TAG holds files that are not this build's - remove them from the draft, then re-run"
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false
 
+  # Accepted, and the one place it is: gh-action-pypi-publish is pinned to a
+  # commit but runs PyPA's Docker image by tag, in a job that can mint an OIDC
+  # token - and the MCP registry takes any OIDC token of this owner as a login
+  # for io.github.edxleon/*. It is PyPA's own way to PyPI, and the only one
+  # that makes PyPI's attestations; nothing optional (scorecard.yml) gets that.
+  #
   # PyPI through a trusted publisher: no token exists anywhere, PyPI trusts the
   # OIDC identity of this workflow in the `pypi` environment. Like `release`, it
   # runs no project code and uploads the files `build` made. After `release`, not

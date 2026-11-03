@@ -75,6 +75,14 @@ ALLOWED_NUMBERS = re.compile(r"9[_]?000[_]?000[_]?\d{3}|1234567890")
 #: outside the DOI) is still checked.
 _DOI = re.compile(r"doi:10\.\d{4,}/\S+")
 
+#: A commit SHA or a SHA-256 digest: every action here is pinned to one, and a
+#: release carries its files' digests. A hash is random hex, so now and then it
+#: holds a run of 9-12 digits the chat-id rule reads as an id - scorecard-action
+#: v2.5.0 is `fa7117db...350999701505d78e`, which stopped every push and would
+#: have stopped every release tag. 40 or 64 hex characters with at least one
+#: letter, standing alone, are cut out before a line is scanned.
+_HASH = re.compile(r"(?<![0-9A-Za-z])(?=[0-9a-f]*[a-f])(?:[0-9a-f]{64}|[0-9a-f]{40})(?![0-9A-Za-z])")
+
 
 def extra() -> re.Pattern | None:
     terms = os.environ.get("RUNSPECTOR_PII_EXTRA", "").strip()
@@ -151,6 +159,7 @@ def commit_messages(patterns: dict[str, re.Pattern]) -> int:
             citation = _DOI.search(line) is not None          # read like a file's line
             if citation:
                 line = _DOI.sub(" ", line)
+            line = _HASH.sub(" ", line)
             for label, rx in patterns.items():
                 if citation and label == "German leftover":
                     continue
@@ -205,6 +214,7 @@ def main() -> int:
             citation = not binary and _DOI.search(line) is not None
             if citation:
                 line = _DOI.sub(" ", line)
+            line = _HASH.sub(" ", line)
             for label, rx in active.items():
                 if citation and label == "German leftover":
                     continue
