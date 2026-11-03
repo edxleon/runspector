@@ -18,7 +18,9 @@ uv run ruff check && uv run pytest -q && node --test "web-tests/*.test.mjs" && u
 The pre-push hook (`.githooks/pre-push`, opt-in: `git config core.hooksPath .githooks`) runs this
 again without the node tests and blocks a push whose coach prompt changed without an eval run.
 CI also holds a coverage floor (92 % branch, one leg); a drop under it is a missing test, not a
-number to lower. A Biome version bump changes `ci.yml`, the hook, this line and `$schema` in
+number to lower. It lists what a change does to the tests themselves (`scripts/tamper_report.py`):
+tests deleted, skips added, golden files rewritten, eval cases dropped or newly `known` - say why in
+the pull request; a lower floor or a lost safety case is red. A Biome version bump changes `ci.yml`, the hook, this line and `$schema` in
 `biome.jsonc` together.
 
 ## When you change X, also do Y
