@@ -46,7 +46,7 @@ dev = [
     # Exact, and two weeks old when it was added: the dev group is installed in
     # the job that holds the Claude token too (evals.yml), so a fresh upload
     # waits; Dependabot proposes the bumps.
-    "hypothesis==6.170.4",
+    "hypothesis==6.170.14",
     "pytest>=8",
     "pytest-cov>=7",
     "pytest-timeout>=2.3",
