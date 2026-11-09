@@ -171,9 +171,15 @@ def test_the_check_keeps_the_athletes_own_claude_code_out_too(cli, monkeypatch):
     cli('{"1": {"why": "only have 45 minutes", "keep": true}}')
     assert _REAL_VERIFY(["Has 45 minutes on weekdays"], "On weekdays I only have 45 minutes.") == [True]
     argv = json.loads((cli.dir / "argv.json").read_text())
-    assert json.loads(argv[argv.index("--settings") + 1]) == json.loads(agent.isolation(agent.COACH_EFFORT))
-    assert argv[argv.index("--effort") + 1] == agent.COACH_EFFORT and "--disable-slash-commands" in argv
+    assert json.loads(argv[argv.index("--settings") + 1]) == json.loads(agent.isolation(agent.VERIFY_EFFORT))
+    assert argv[argv.index("--effort") + 1] == agent.VERIFY_EFFORT == "high", "the check's own, not a card's"
+    assert "--disable-slash-commands" in argv
     assert argv[argv.index("--setting-sources") + 1] == "", "with a plan that needs none, no settings file"
+    for env, effort in (("low", "low"), ("hgh", "high")):   # an override reaches it; a typo is none
+        monkeypatch.setenv("RUNSPECTOR_EFFORT", env)
+        assert _REAL_VERIFY(["Has 45 minutes on weekdays"], "On weekdays I only have 45 minutes.") == [True]
+        assert argv_of(cli)[argv_of(cli).index("--effort") + 1] == effort
+    monkeypatch.delenv("RUNSPECTOR_EFFORT")
     monkeypatch.setattr(agent, "settings_can_stay_unread", lambda **_: False)
     assert _REAL_VERIFY(["Has 45 minutes on weekdays"], "On weekdays I only have 45 minutes.") == [True]
     assert "--setting-sources" not in argv_of(cli), "a sign-in kept in them"

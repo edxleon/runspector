@@ -33,3 +33,4 @@
 | 2026-11-03 19:15 | sonnet (the app's default) | 20/20 | - | final isolation: AGENTS.md, rules, language, output style, effort env (a card 12 s median) |
 | 2026-11-03 19:55 | sonnet (the app's default) | 20/20 | - |  (a card 12 s median) |
 | 2026-11-03 20:26 | sonnet (the app's default) | 19/20 | a-restart-in-german |  (a card 13 s median) |
+| 2026-11-09 22:51 | sonnet (the app's default) | 20/20 | - | re-read after every sync; judge questions narrowed (a card 13 s median) |

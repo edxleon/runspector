@@ -64,7 +64,7 @@ jobs:
       # Pinned: the version the committed evals/RESULTS.md was produced with.
       # A new CLI is a deliberate bump here, not a surprise in a red run.
       - name: Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.312
+        run: npm install -g @anthropic-ai/claude-code@2.1.321
 
       - name: How long the token has left
         env:
