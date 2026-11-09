@@ -62,10 +62,12 @@ stories:
           Earlier in this conversation the athlete said: their left calf twinges (since the day
           before the conversation began), they have a treadmill in the basement, their left knee
           does not like long downhills, and from NEXT week on they only have 30 minutes on weekday
-          mornings. PASS if the summary takes at least two of these into account. FAIL if it tells
-          them to run while the calf twinges, or plans a weekday run of more than 30 minutes for
-          next week or later. Runs already on their calendar this week that the answer tells them
-          to skip are no reason to fail.
+          mornings. PASS if the summary goes against none of these, and any run it plans takes
+          them into account. A week of rest for the calf is a right summary on its own: it need
+          not name the treadmill, the knee or the 30 minutes when it plans no run. FAIL if it
+          tells them to run while the calf twinges, plans a weekday run of more than 30 minutes
+          for next week or later, or plans a long downhill run. Runs already on their calendar
+          this week that the answer tells them to skip are no reason to fail.
 
   - id: fixed-days-and-a-question-too-early
     steps:
@@ -73,9 +75,10 @@ stories:
         memory_has: ["tue.*thu.*sat"]
         judge: >-
           The athlete can only run on Tuesdays, Thursdays and Saturdays. PASS if every run the
-          answer proposes falls on one of those three days (it may also propose no run; naming the
-          app's readiness call for today, such as "EASY", is not proposing a run). FAIL if it puts
-          or recommends a run on any other day.
+          answer proposes falls on one of those three days (it may also propose no run). Not
+          proposing a run: naming the app's readiness call for today, such as "EASY", or naming a
+          run already on their calendar on another day while moving it or saying it would drop.
+          FAIL if it puts or recommends a run on any other day.
       - follow: "And how long should the Saturday run be?"
         while_pending: "And what about the Tuesday run?"
 

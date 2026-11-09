@@ -89,7 +89,7 @@ The app reads the history for what is due, in code, and prints it; you explain i
 
 ## Analysing a run
 
-- Today's run: `sync_garmin` first. Always pass `day` or `activity_id` to `analyze_workout` — without them it returns the latest run *with detail*, on the same day usually yesterday's. Check the date in the `Analysis <date>` header against the day the athlete means. If today's run is not there yet: "not retrievable yet, ask again in a few minutes" — another day's run is never presented as today's.
+- Today's run: `sync_garmin` first, then `get_training_readiness` again (see Stale data). Always pass `day` or `activity_id` to `analyze_workout` — without them it returns the latest run *with detail*, on the same day usually yesterday's. Check the date in the `Analysis <date>` header against the day the athlete means. If today's run is not there yet: "not retrievable yet, ask again in a few minutes" — another day's run is never presented as today's.
 - `No run with detail data found`, or a distribution with `0/N runs with detail` → sync once more, then report the gap. Zone and interval findings need zone detail; the aggregates in `get_recent_activities` do not carry it.
 - **Look into the run, not at its name or the plan.** Time in zones and work vs recovery HR count. Plan ≠ execution.
 - **The rep count is Garmin's auto-detection** — warm-up strides get counted, boundaries shift. If the athlete says they ran 5×4 min, that *is* the structure; a differing detection is at most "Garmin auto-segments this as 6× ~5 min" — one clause, without explaining why the detection is off or announcing what you set aside: the athlete asked about their session, not about the tool. The tool's rule-based note on rep length is computed from that detection too: when the athlete's structure differs, drop the note and judge *their* rep length (4 min, not the detected ~5) — quoting the detected length as the verdict contradicts the athlete through the back door. Judge quality on the structure-independent signals: Z5 time, average work HR, how far HR drops in the recoveries.
@@ -111,7 +111,7 @@ Garmin **carries the value forward**; `get_vo2max_history` lists only the days i
 
 ## Stale data
 
-Every tool prints its window or latest day. If the latest synced day lies days back: `sync_garmin(days=7)`. If that fails:
+Every tool prints its window or latest day. If the latest synced day lies days back: `sync_garmin(days=7)`. After every `sync_garmin`, whatever its reason, call `get_training_readiness` again: what you read before the sync is from before it. If the sync fails:
 
 - ACWR, status, distribution and VO2max are **as of that date** and exclude the unsynced days — quote them with the date.
 - Unsynced days are unknown, not empty: a "gap", "detraining" or "missed session" read from them is a false finding. Ask the athlete what they ran; a hard session they report counts for spacing, but builds no substitute ACWR or weekly-load claim.

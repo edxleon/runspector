@@ -102,8 +102,10 @@ nobody registers denies nothing. The host's own Claude Code configuration is kep
   wins), a model mapping or `fallbackModel` (each card records the model it ran on), and a third-party
   plugin's forced output style.
 
-Both pass the coach's effort (`COACH_EFFORT`, also as `CLAUDE_CODE_EFFORT_LEVEL`, which beats
-`--effort`; an unknown `RUNSPECTOR_EFFORT` falls back to it, since the CLI would only warn) and no skills
+Both pass the run's own effort - a card `COACH_EFFORT` (medium), the check before a fact is kept
+`VERIFY_EFFORT` (high: at medium it let an instruction in brackets through in about 3 % of checks) -
+also as `CLAUDE_CODE_EFFORT_LEVEL`, which beats `--effort`; `RUNSPECTOR_EFFORT` overrides both, and an
+unknown value falls back to the run's own, since the CLI would only warn. No skills
 or commands. What stays either way: the sign-in, the CLI's own built-in plugins, a shell variable the
 app neither strips (`onboarding.child_env`) nor resets, and the account's e-mail address, which the
 CLI's default system prompt carries and no setting removes.
