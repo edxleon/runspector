@@ -5,6 +5,7 @@
 [![evals 38/38](https://img.shields.io/badge/evals-38%2F38-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![website](https://img.shields.io/badge/website-edxleon.github.io%2Frunspector-blue)](https://edxleon.github.io/runspector/)
+[![edxleon/runspector MCP server](https://glama.ai/mcp/servers/edxleon/runspector/badges/score.svg)](https://glama.ai/mcp/servers/edxleon/runspector)
 
 **A free, open-source AI running coach for Garmin watches.** Runspector syncs your Garmin Connect data -
 HRV, sleep, Body Battery, resting heart rate, training load and every run - into a file on your own
