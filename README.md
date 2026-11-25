@@ -17,7 +17,8 @@ https://github.com/user-attachments/assets/0b4d7d86-5ab7-439b-82cb-89a004b71405
 
 <sub>The 90-second demo, with voice-over: the synthetic demo athlete, rebuilt from this repo by <code>scripts/video.py</code>
 (<a href="docs/video/runspector-demo.mp4">file</a>). No player above? The GitHub mobile app shows no videos:
-<a href="https://cdn.jsdelivr.net/gh/edxleon/runspector@main/docs/video/runspector-demo.mp4">▶ play the demo</a> in the browser.</sub>
+<a href="https://cdn.jsdelivr.net/gh/edxleon/runspector@main/docs/video/runspector-demo.mp4">▶ play the demo</a> in the browser.
+Short clips of single features: <a href="https://www.tiktok.com/@runspector">@runspector on TikTok</a>.</sub>
 
 <p>
   <img src="docs/screenshots/readme-today.png" alt="Runspector Today tab: training readiness verdict from Garmin data, the decision for today, the week plan, HRV, sleep and Body Battery" width="24%">
